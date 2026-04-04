@@ -42,7 +42,7 @@ export function RoomList() {
   };
 
   return (
-    <div className="flex flex-col min-h-dvh">
+    <div className="flex flex-col min-h-screen">
       <PageHeader
         title="llloom"
         right={
