@@ -42,14 +42,14 @@ export function RoomDetail() {
 
   if (!room) {
     return (
-      <div className="flex items-center justify-center min-h-dvh text-slate-500">
+      <div className="flex items-center justify-center min-h-screen text-slate-500">
         Loading...
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col min-h-dvh">
+    <div className="flex flex-col min-h-screen">
       <PageHeader
         title={room.name}
         backTo="/"

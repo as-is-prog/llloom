@@ -9,7 +9,7 @@ import { PresetEdit } from './pages/PresetEdit';
 export default function App() {
   return (
     <BrowserRouter basename="/llloom">
-      <div className="min-h-dvh bg-slate-950 text-slate-100">
+      <div className="min-h-screen bg-slate-950 text-slate-100">
         <Routes>
           <Route path="/" element={<RoomList />} />
           <Route path="/rooms/:roomId" element={<RoomDetail />} />

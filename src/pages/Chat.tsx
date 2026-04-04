@@ -208,14 +208,14 @@ export function Chat() {
 
   if (!room || !conversation) {
     return (
-      <div className="flex items-center justify-center min-h-dvh text-slate-500">
+      <div className="flex items-center justify-center min-h-screen text-slate-500">
         Loading...
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-dvh">
+    <div className="flex flex-col h-screen">
       <PageHeader
         title={conversation.title}
         backTo={`/rooms/${roomId}`}
