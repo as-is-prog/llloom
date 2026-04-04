@@ -9,7 +9,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useChatStore } from '../stores/chatStore';
 import { PageHeader } from '../components/PageHeader';
 import { ChatInput } from '../components/ChatInput';
-import { MessageBubble } from '../components/MessageBubble';
+import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 import { ContextMeter } from '../components/ContextMeter';
 import type { Message } from '../types';
 
@@ -33,15 +33,26 @@ export function Chat() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
 
-  // Items = messages + optional streaming message
+  // Items = messages + optional typing indicator or streaming message
   const items = useMemo(() => {
-    const list: { id: string; role: Message['role']; content: string }[] =
-      messages?.map((m) => ({ id: m.id, role: m.role, content: m.content })) ?? [];
+    const list: { id: string; role: Message['role']; content: string; type: 'message' | 'typing' | 'streaming' }[] =
+      messages?.map((m) => ({ id: m.id, role: m.role, content: m.content, type: 'message' as const })) ?? [];
     if (isStreaming && streamingContent) {
-      list.push({ id: '__streaming__', role: 'assistant', content: streamingContent });
+      list.push({ id: '__streaming__', role: 'assistant', content: streamingContent, type: 'streaming' });
+    } else if (isStreaming && !streamingContent) {
+      list.push({ id: '__typing__', role: 'assistant', content: '', type: 'typing' });
     }
     return list;
   }, [messages, isStreaming, streamingContent]);
+
+  // Find last assistant message id (from DB, not streaming)
+  const lastAssistantId = useMemo(() => {
+    if (!messages) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return messages[i].id;
+    }
+    return null;
+  }, [messages]);
 
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -75,27 +86,10 @@ export function Chat() {
     return tokens;
   }, [room?.systemPrompt, messages, streamingContent]);
 
-  const sendMessage = useCallback(
-    async (content: string) => {
+  /** Stream an AI response based on the current messages in the DB */
+  const requestAIResponse = useCallback(
+    async () => {
       if (!room || !preset || !convId) return;
-
-      const now = Date.now();
-      const userMsg: Message = {
-        id: generateId(),
-        conversationId: convId,
-        role: 'user',
-        content,
-        createdAt: now,
-      };
-      await db.messages.add(userMsg);
-
-      // Update conversation title from first message
-      const msgCount = await db.messages.where('conversationId').equals(convId).count();
-      if (msgCount === 1) {
-        const title = content.slice(0, 50) + (content.length > 50 ? '…' : '');
-        await db.conversations.update(convId, { title, updatedAt: now });
-      }
-      await db.rooms.update(room.id, { updatedAt: now });
 
       const allMessages = await db.messages
         .where('conversationId')
@@ -138,6 +132,78 @@ export function Chat() {
       });
     },
     [room, preset, convId, settings, startStreaming, appendStreamingContent, setStreamingContent, stopStreaming],
+  );
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!room || !preset || !convId) return;
+
+      const now = Date.now();
+      const userMsg: Message = {
+        id: generateId(),
+        conversationId: convId,
+        role: 'user',
+        content,
+        createdAt: now,
+      };
+      await db.messages.add(userMsg);
+
+      // Update conversation title from first message
+      const msgCount = await db.messages.where('conversationId').equals(convId).count();
+      if (msgCount === 1) {
+        const title = content.slice(0, 50) + (content.length > 50 ? '…' : '');
+        await db.conversations.update(convId, { title, updatedAt: now });
+      }
+      await db.rooms.update(room.id, { updatedAt: now });
+
+      await requestAIResponse();
+    },
+    [room, preset, convId, requestAIResponse],
+  );
+
+  /** Edit a user message: update content, delete all messages after it, then re-request AI */
+  const handleEdit = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (!convId || isStreaming) return;
+
+      const allMessages = await db.messages
+        .where('conversationId')
+        .equals(convId)
+        .sortBy('createdAt');
+
+      const idx = allMessages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return;
+
+      // Update the edited message
+      await db.messages.update(messageId, { content: newContent });
+
+      // Delete all messages after the edited one
+      const idsToDelete = allMessages.slice(idx + 1).map((m) => m.id);
+      if (idsToDelete.length > 0) {
+        await db.messages.bulkDelete(idsToDelete);
+      }
+
+      await requestAIResponse();
+    },
+    [convId, isStreaming, requestAIResponse],
+  );
+
+  /** Regenerate: delete the last assistant message and re-request */
+  const handleRegenerate = useCallback(
+    async () => {
+      if (!convId || isStreaming || !messages) return;
+
+      // Find the last assistant message
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          await db.messages.delete(messages[i].id);
+          break;
+        }
+      }
+
+      await requestAIResponse();
+    },
+    [convId, isStreaming, messages, requestAIResponse],
   );
 
   if (!room || !conversation) {
@@ -195,7 +261,18 @@ export function Chat() {
                 }}
                 className="py-1.5"
               >
-                <MessageBubble role={item.role} content={item.content} />
+                {item.type === 'typing' ? (
+                  <TypingIndicator />
+                ) : (
+                  <MessageBubble
+                    role={item.role}
+                    content={item.content}
+                    isLastAssistant={item.id === lastAssistantId}
+                    isStreaming={isStreaming}
+                    onEdit={item.role === 'user' ? (newContent) => handleEdit(item.id, newContent) : undefined}
+                    onRegenerate={handleRegenerate}
+                  />
+                )}
               </div>
             );
           })}
