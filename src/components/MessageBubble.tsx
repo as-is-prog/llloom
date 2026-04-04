@@ -49,7 +49,7 @@ export function MessageBubble({ role, content, isLastAssistant, isStreaming, onE
   };
 
   return (
-    <div className={`group flex ${isUser ? 'justify-end' : 'justify-start'} px-3`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-3`}>
       <div className={`max-w-[85%] ${isUser ? 'flex flex-col items-end' : ''}`}>
         <div
           className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
@@ -92,11 +92,11 @@ export function MessageBubble({ role, content, isLastAssistant, isStreaming, onE
           )}
         </div>
 
-        {/* Action buttons */}
+        {/* Action buttons — always visible for touch devices */}
         {isUser && !editing && onEdit && !isStreaming && (
           <button
             onClick={() => { setEditValue(content); setEditing(true); }}
-            className="mt-1 text-xs text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="mt-1 text-xs text-slate-500 active:text-slate-200 hover:text-slate-300 transition-colors"
           >
             編集
           </button>
@@ -104,7 +104,7 @@ export function MessageBubble({ role, content, isLastAssistant, isStreaming, onE
         {isLastAssistant && !isStreaming && onRegenerate && (
           <button
             onClick={onRegenerate}
-            className="mt-1 text-xs text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="mt-1 text-xs text-slate-500 active:text-slate-200 hover:text-slate-300 transition-colors"
           >
             再生成
           </button>
