@@ -16,6 +16,7 @@ export async function synthesize(
 
   const res = await fetch(`${settings.endpointUrl}/voice?${params}`, {
     method: 'POST',
+    headers: { 'X-Request-Source': 'llloom' },
     signal,
   });
   if (!res.ok) {
