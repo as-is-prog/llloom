@@ -1,6 +1,8 @@
 import type { AppSettings, Message, Preset } from '../types';
 
-export async function fetchModels(settings: AppSettings): Promise<string[]> {
+type LlmSettings = Pick<AppSettings, 'endpointUrl' | 'apiType'>;
+
+export async function fetchModels(settings: LlmSettings): Promise<string[]> {
   const url =
     settings.apiType === 'ollama'
       ? `${settings.endpointUrl}/api/tags`
@@ -17,7 +19,7 @@ export async function fetchModels(settings: AppSettings): Promise<string[]> {
 }
 
 interface ChatRequestOptions {
-  settings: AppSettings;
+  settings: LlmSettings;
   preset: Preset;
   systemPrompt: string;
   messages: Pick<Message, 'role' | 'content'>[];

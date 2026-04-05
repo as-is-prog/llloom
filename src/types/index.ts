@@ -1,6 +1,16 @@
 export interface AppSettings {
   endpointUrl: string;
   apiType: 'ollama' | 'openai';
+  tts: TtsSettings;
+}
+
+export interface TtsSettings {
+  enabled: boolean;
+  endpointUrl: string;
+  modelName: string;
+  style: string;
+  styleWeight: number;
+  speed: number;
 }
 
 export interface Preset {

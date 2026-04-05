@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { db } from '../lib/db';
 import { generateId } from '../lib/utils';
 import { streamChat, estimateTokens } from '../lib/api';
+import { synthesize, extractQuotedSegments, TtsQueue } from '../lib/tts';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useChatStore } from '../stores/chatStore';
 import { PageHeader } from '../components/PageHeader';
@@ -32,6 +33,7 @@ export function Chat() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+  const ttsQueueRef = useRef(new TtsQueue());
 
   // Items = messages + optional typing indicator or streaming message
   const items = useMemo(() => {
@@ -99,6 +101,10 @@ export function Chat() {
       const controller = startStreaming();
 
       let fullContent = '';
+      let ttsProcessedUpTo = 0;
+      const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
+      const ttsAbort = new AbortController();
+
       await streamChat({
         settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
         preset,
@@ -107,6 +113,16 @@ export function Chat() {
         onChunk: (chunk) => {
           fullContent += chunk;
           appendStreamingContent(chunk);
+
+          if (ttsEnabled) {
+            const [segments, newPos] = extractQuotedSegments(fullContent, ttsProcessedUpTo);
+            ttsProcessedUpTo = newPos;
+            for (const seg of segments) {
+              synthesize(settings.tts, seg, ttsAbort.signal)
+                .then((buf) => ttsQueueRef.current.enqueue(buf))
+                .catch((e) => { if (e.name !== 'AbortError') console.warn('TTS:', e); });
+            }
+          }
         },
         onDone: async () => {
           if (fullContent) {
@@ -125,6 +141,8 @@ export function Chat() {
         },
         onError: (error) => {
           console.error('Stream error:', error);
+          ttsAbort.abort();
+          ttsQueueRef.current.clear();
           setStreamingContent('');
           stopStreaming();
         },
@@ -222,7 +240,7 @@ export function Chat() {
         right={
           isStreaming ? (
             <button
-              onClick={stopStreaming}
+              onClick={() => { ttsQueueRef.current.clear(); stopStreaming(); }}
               className="text-xs text-red-400 hover:text-red-300 font-medium"
             >
               Stop

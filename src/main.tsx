@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
 
-// Register service worker
+// Unregister service worker and clear caches
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/llloom/sw.js');
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) reg.unregister();
+  });
+  caches.keys().then((names) => {
+    for (const name of names) caches.delete(name);
   });
 }
 

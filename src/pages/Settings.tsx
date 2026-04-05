@@ -1,15 +1,41 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { generateId } from '../lib/utils';
 import { useSettingsStore } from '../stores/settingsStore';
 import { PageHeader } from '../components/PageHeader';
-import type { Preset } from '../types';
+import type { Preset, TtsSettings } from '../types';
 
 export function Settings() {
   const navigate = useNavigate();
-  const { endpointUrl, apiType, update } = useSettingsStore();
+  const { endpointUrl, apiType, tts, update } = useSettingsStore();
   const presets = useLiveQuery(() => db.presets.toArray());
+  const [ttsModels, setTtsModels] = useState<{ name: string; styles: string[] }[]>([]);
+  const [ttsStatus, setTtsStatus] = useState<string>('');
+
+  const updateTts = (partial: Partial<TtsSettings>) => update({ tts: { ...tts, ...partial } });
+
+  const fetchTtsModels = async () => {
+    if (!tts.endpointUrl) return;
+    setTtsStatus('Loading...');
+    try {
+      const res = await fetch(`${tts.endpointUrl}/models/info`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const info = await res.json();
+      const models = Object.values(info).map((m: any) => ({
+        name: Object.keys(m.spk2id)[0] ?? m.model_path,
+        styles: Object.keys(m.style2id),
+      }));
+      setTtsModels(models);
+      setTtsStatus(`${models.length} model(s) found`);
+    } catch (e) {
+      setTtsStatus(`Error: ${e}`);
+      setTtsModels([]);
+    }
+  };
+
+  const selectedModelStyles = ttsModels.find((m) => m.name === tts.modelName)?.styles ?? [];
 
   const createPreset = async () => {
     const preset: Preset = {
@@ -56,6 +82,107 @@ export function Settings() {
               className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
             />
           </div>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-slate-400">TTS (Style-Bert-VITS2)</h2>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={tts.enabled}
+              onChange={(e) => updateTts({ enabled: e.target.checked })}
+              className="rounded bg-slate-900 border-slate-700"
+            />
+            <span className="text-sm">Enable TTS</span>
+          </label>
+
+          {tts.enabled && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">SBV2 Endpoint URL</label>
+                <div className="flex gap-2">
+                  <input
+                    value={tts.endpointUrl}
+                    onChange={(e) => updateTts({ endpointUrl: e.target.value })}
+                    placeholder="https://example.ts.net/other-api/sbv2"
+                    className="flex-1 bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                  />
+                  <button
+                    onClick={fetchTtsModels}
+                    className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition-colors shrink-0"
+                  >
+                    Fetch
+                  </button>
+                </div>
+                {ttsStatus && <p className="text-xs text-slate-500 mt-1">{ttsStatus}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Model</label>
+                {ttsModels.length > 0 ? (
+                  <select
+                    value={tts.modelName}
+                    onChange={(e) => updateTts({ modelName: e.target.value, style: 'Neutral' })}
+                    className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                  >
+                    <option value="">-- select --</option>
+                    {ttsModels.map((m) => (
+                      <option key={m.name} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={tts.modelName}
+                    onChange={(e) => updateTts({ modelName: e.target.value })}
+                    placeholder="Model name"
+                    className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                  />
+                )}
+              </div>
+
+              {selectedModelStyles.length > 0 && (
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Style</label>
+                  <select
+                    value={tts.style}
+                    onChange={(e) => updateTts({ style: e.target.value })}
+                    className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                  >
+                    {selectedModelStyles.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">
+                  Style Weight: {tts.styleWeight}
+                </label>
+                <input
+                  type="range"
+                  min={0} max={20} step={1}
+                  value={tts.styleWeight}
+                  onChange={(e) => updateTts({ styleWeight: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">
+                  Speed: {tts.speed}
+                </label>
+                <input
+                  type="range"
+                  min={0.5} max={2.0} step={0.1}
+                  value={tts.speed}
+                  onChange={(e) => updateTts({ speed: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="space-y-3">
