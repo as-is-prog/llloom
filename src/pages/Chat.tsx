@@ -5,7 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { db } from '../lib/db';
 import { generateId } from '../lib/utils';
 import { streamChat, estimateTokens } from '../lib/api';
-import { synthesize, extractQuotedSegments, TtsQueue } from '../lib/tts';
+import { synthesize, extractQuotedSegments, createQuoteParserState, TtsQueue } from '../lib/tts';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useChatStore } from '../stores/chatStore';
 import { PageHeader } from '../components/PageHeader';
@@ -101,9 +101,9 @@ export function Chat() {
       const controller = startStreaming();
 
       let fullContent = '';
-      let ttsProcessedUpTo = 0;
       const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
       const ttsAbort = new AbortController();
+      const quoteState = createQuoteParserState();
 
       await streamChat({
         settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
@@ -115,8 +115,7 @@ export function Chat() {
           appendStreamingContent(chunk);
 
           if (ttsEnabled) {
-            const [segments, newPos] = extractQuotedSegments(fullContent, ttsProcessedUpTo);
-            ttsProcessedUpTo = newPos;
+            const segments = extractQuotedSegments(fullContent, quoteState);
             for (const seg of segments) {
               synthesize(settings.tts, seg, ttsAbort.signal)
                 .then((buf) => ttsQueueRef.current.enqueue(buf))
