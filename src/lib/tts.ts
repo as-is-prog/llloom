@@ -99,6 +99,15 @@ export class TtsQueue {
   private aborted = false;
   private currentSource: AudioBufferSourceNode | null = null;
 
+  /**
+   * ユーザー操作（タップ/クリック）のコンテキスト内で呼ぶ。
+   * iOS Safari は操作起点でないと AudioContext が suspended のまま再生できない。
+   */
+  warm() {
+    if (!this.ctx) this.ctx = new AudioContext();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
   enqueue(audio: ArrayBuffer) {
     this.queue.push(audio);
     if (!this.playing) this.playNext();
@@ -126,6 +135,7 @@ export class TtsQueue {
 
     try {
       if (!this.ctx) this.ctx = new AudioContext();
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
       const audioBuf = await this.ctx.decodeAudioData(buf.slice(0));
       if (this.aborted) return;
 

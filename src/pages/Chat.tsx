@@ -154,6 +154,7 @@ export function Chat() {
   const sendMessage = useCallback(
     async (content: string) => {
       if (!room || !preset || !convId) return;
+      if (settings.tts.enabled) ttsQueueRef.current.warm();
 
       const now = Date.now();
       const userMsg: Message = {
@@ -182,6 +183,7 @@ export function Chat() {
   const handleEdit = useCallback(
     async (messageId: string, newContent: string) => {
       if (!convId || isStreaming) return;
+      if (settings.tts.enabled) ttsQueueRef.current.warm();
 
       const allMessages = await db.messages
         .where('conversationId')
@@ -209,6 +211,7 @@ export function Chat() {
   const handleRegenerate = useCallback(
     async () => {
       if (!convId || isStreaming || !messages) return;
+      if (settings.tts.enabled) ttsQueueRef.current.warm();
 
       // Find the last assistant message
       for (let i = messages.length - 1; i >= 0; i--) {
