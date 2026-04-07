@@ -124,6 +124,16 @@ export function Chat() {
           }
         },
         onDone: async () => {
+          // ストリーム終了時、未確定テキストをフラッシュしてTTSに送る
+          if (ttsEnabled) {
+            const remaining = extractQuotedSegments(fullContent, quoteState, true);
+            for (const seg of remaining) {
+              synthesize(settings.tts, seg, ttsAbort.signal)
+                .then((buf) => ttsQueueRef.current.enqueue(buf))
+                .catch((e) => { if (e.name !== 'AbortError') console.warn('TTS:', e); });
+            }
+          }
+
           if (fullContent) {
             const assistantMsg: Message = {
               id: generateId(),

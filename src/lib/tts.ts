@@ -26,7 +26,9 @@ export async function synthesize(
   return res.arrayBuffer();
 }
 
-const SENTENCE_DELIMITERS = /(?<=[。！？!?])/;
+// 句読点で分割するが、直後に閉じ括弧が続く場合は分割しない
+// 例: 「（豚バラ、イカなど！）をたっぷり」→「！」では分割しない
+const SENTENCE_DELIMITERS = /(?<=[。！？!?])(?![）\)」】》〉』])/;
 
 /**
  * ストリーミングテキストから「」内の発話を文単位で抽出する。
@@ -49,6 +51,7 @@ export function createQuoteParserState(): QuoteParserState {
 export function extractQuotedSegments(
   text: string,
   state: QuoteParserState,
+  flush = false,
 ): string[] {
   const segments: string[] = [];
 
@@ -67,8 +70,10 @@ export function extractQuotedSegments(
     // まだ閉じてない → 確定した文（。等で終わる部分）を先行抽出
     const inner = text.slice(state.sentenceCursor);
     const sentences = inner.split(SENTENCE_DELIMITERS);
-    // 最後の要素は未確定（まだ。が来てないかもしれない）なので残す
-    for (let i = 0; i < sentences.length - 1; i++) {
+    // flush=false: 最後の要素は未確定なので残す
+    // flush=true:  ストリーム終了時は全て出す
+    const limit = flush ? sentences.length : sentences.length - 1;
+    for (let i = 0; i < limit; i++) {
       const s = sentences[i].trim();
       if (s) segments.push(s);
       state.sentenceCursor += sentences[i].length;
