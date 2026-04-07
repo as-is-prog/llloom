@@ -124,8 +124,8 @@ export function Chat() {
                 try {
                   const buf = await audioPromise;
                   ttsQueueRef.current.enqueue(buf);
-                } catch (e) {
-                  if (e.name !== 'AbortError') console.warn('TTS:', e);
+                } catch (e: unknown) {
+                  if (e instanceof Error && e.name !== 'AbortError') console.warn('TTS:', e);
                 }
               });
             }
@@ -141,8 +141,8 @@ export function Chat() {
                 try {
                   const buf = await audioPromise;
                   ttsQueueRef.current.enqueue(buf);
-                } catch (e) {
-                  if (e.name !== 'AbortError') console.warn('TTS:', e);
+                } catch (e: unknown) {
+                  if (e instanceof Error && e.name !== 'AbortError') console.warn('TTS:', e);
                 }
               });
             }
