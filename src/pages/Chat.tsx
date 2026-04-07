@@ -104,6 +104,8 @@ export function Chat() {
       const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
       const ttsAbort = new AbortController();
       const quoteState = createQuoteParserState();
+      // 合成リクエストは並列に発火しつつ、enqueueの順序を保証するチェーン
+      let ttsChain = Promise.resolve();
 
       await streamChat({
         settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
@@ -117,9 +119,15 @@ export function Chat() {
           if (ttsEnabled) {
             const segments = extractQuotedSegments(fullContent, quoteState);
             for (const seg of segments) {
-              synthesize(settings.tts, seg, ttsAbort.signal)
-                .then((buf) => ttsQueueRef.current.enqueue(buf))
-                .catch((e) => { if (e.name !== 'AbortError') console.warn('TTS:', e); });
+              const audioPromise = synthesize(settings.tts, seg, ttsAbort.signal);
+              ttsChain = ttsChain.then(async () => {
+                try {
+                  const buf = await audioPromise;
+                  ttsQueueRef.current.enqueue(buf);
+                } catch (e) {
+                  if (e.name !== 'AbortError') console.warn('TTS:', e);
+                }
+              });
             }
           }
         },
@@ -128,9 +136,15 @@ export function Chat() {
           if (ttsEnabled) {
             const remaining = extractQuotedSegments(fullContent, quoteState, true);
             for (const seg of remaining) {
-              synthesize(settings.tts, seg, ttsAbort.signal)
-                .then((buf) => ttsQueueRef.current.enqueue(buf))
-                .catch((e) => { if (e.name !== 'AbortError') console.warn('TTS:', e); });
+              const audioPromise = synthesize(settings.tts, seg, ttsAbort.signal);
+              ttsChain = ttsChain.then(async () => {
+                try {
+                  const buf = await audioPromise;
+                  ttsQueueRef.current.enqueue(buf);
+                } catch (e) {
+                  if (e.name !== 'AbortError') console.warn('TTS:', e);
+                }
+              });
             }
           }
 
