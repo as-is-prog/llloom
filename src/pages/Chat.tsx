@@ -130,34 +130,17 @@ export function Chat() {
       const quoteState = createQuoteParserState();
       // 合成リクエストは並列に発火しつつ、enqueueの順序を保証するチェーン
       let ttsChain = Promise.resolve();
-      let activeTtsSynthesis = 0;
-      const ttsWaiters: Array<() => void> = [];
-
-      const acquireTtsSlot = async () => {
-        if (activeTtsSynthesis < MAX_TTS_SYNTH_CONCURRENCY) {
-          activeTtsSynthesis += 1;
-          return;
-        }
-        await new Promise<void>((resolve) => ttsWaiters.push(resolve));
-      };
-
-      const releaseTtsSlot = () => {
-        const next = ttsWaiters.shift();
-        if (next) {
-          // 空いたスロットを待機中タスクへ引き継ぐ（activeは維持）
-          next();
-          return;
-        }
-        activeTtsSynthesis -= 1;
-      };
+      const inFlightTts = new Set<Promise<ArrayBuffer>>();
 
       const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
-        await acquireTtsSlot();
-        try {
-          return await task();
-        } finally {
-          releaseTtsSlot();
+        while (inFlightTts.size >= MAX_TTS_SYNTH_CONCURRENCY) {
+          await Promise.race(inFlightTts);
         }
+        const run = task().finally(() => {
+          inFlightTts.delete(run);
+        });
+        inFlightTts.add(run);
+        return run;
       };
 
       const scheduleTtsSegment = (seg: string) => {
