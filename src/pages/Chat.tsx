@@ -14,6 +14,8 @@ import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 import { ContextMeter } from '../components/ContextMeter';
 import type { Message } from '../types';
 
+const TTS_SYNTH_ERROR_MESSAGE = '音声合成に失敗しました。TTS接続や設定を確認してください。';
+
 export function Chat() {
   const { roomId, convId } = useParams<{ roomId: string; convId: string }>();
   const settings = useSettingsStore();
@@ -148,7 +150,7 @@ export function Chat() {
                 } catch (e: unknown) {
                   if (e instanceof Error && e.name !== 'AbortError') {
                     console.warn('TTS:', e);
-                    showTtsToast('音声合成に失敗しました。TTS接続や設定を確認してください。');
+                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
                   }
                 }
               });
@@ -168,7 +170,7 @@ export function Chat() {
                 } catch (e: unknown) {
                   if (e instanceof Error && e.name !== 'AbortError') {
                     console.warn('TTS:', e);
-                    showTtsToast('音声合成に失敗しました。TTS接続や設定を確認してください。');
+                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
                   }
                 }
               });

@@ -78,8 +78,9 @@ async function parseOllamaStream(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
+    buffer = lines[lines.length - 1] || '';
+    const completeLines = lines.slice(0, -1);
+    for (const line of completeLines) {
       if (!line.trim()) continue;
       try {
         const json = JSON.parse(line);
