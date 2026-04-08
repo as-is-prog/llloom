@@ -134,9 +134,9 @@ export function Chat() {
 
       const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
         while (inFlightTts.size >= MAX_TTS_SYNTH_CONCURRENCY) {
-          await Promise.race(inFlightTts);
+          await Promise.race(inFlightTts).catch(() => undefined);
         }
-        const run = task().finally(() => {
+        const run = Promise.resolve().then(task).finally(() => {
           inFlightTts.delete(run);
         });
         inFlightTts.add(run);
