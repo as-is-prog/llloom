@@ -136,10 +136,11 @@ export function Chat() {
         while (inFlightTts.size >= MAX_TTS_SYNTH_CONCURRENCY) {
           await Promise.race(inFlightTts).catch(() => undefined);
         }
-        const run = Promise.resolve().then(task).finally(() => {
+        const run = Promise.resolve().then(task);
+        inFlightTts.add(run);
+        run.finally(() => {
           inFlightTts.delete(run);
         });
-        inFlightTts.add(run);
         return run;
       };
 
