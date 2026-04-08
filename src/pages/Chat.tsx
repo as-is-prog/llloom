@@ -134,10 +134,21 @@ export function Chat() {
       const ttsWaiters: Array<() => void> = [];
 
       const acquireTtsSlot = async () => {
-        while (activeTtsSynthesis >= MAX_TTS_SYNTH_CONCURRENCY) {
-          await new Promise<void>((resolve) => ttsWaiters.push(resolve));
+        if (activeTtsSynthesis < MAX_TTS_SYNTH_CONCURRENCY) {
+          activeTtsSynthesis += 1;
+          return;
         }
-        activeTtsSynthesis += 1;
+        await new Promise<void>((resolve) => ttsWaiters.push(resolve));
+      };
+
+      const releaseTtsSlot = () => {
+        const next = ttsWaiters.shift();
+        if (next) {
+          // 空いたスロットを待機中タスクへ引き継ぐ（activeは維持）
+          next();
+          return;
+        }
+        activeTtsSynthesis -= 1;
       };
 
       const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
@@ -145,9 +156,7 @@ export function Chat() {
         try {
           return await task();
         } finally {
-          activeTtsSynthesis -= 1;
-          const next = ttsWaiters.shift();
-          if (next) next();
+          releaseTtsSlot();
         }
       };
 
