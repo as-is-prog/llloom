@@ -133,11 +133,15 @@ export function Chat() {
       let activeTtsSynthesis = 0;
       const ttsWaiters: Array<() => void> = [];
 
-      const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
-        if (activeTtsSynthesis >= MAX_TTS_SYNTH_CONCURRENCY) {
+      const acquireTtsSlot = async () => {
+        while (activeTtsSynthesis >= MAX_TTS_SYNTH_CONCURRENCY) {
           await new Promise<void>((resolve) => ttsWaiters.push(resolve));
         }
         activeTtsSynthesis += 1;
+      };
+
+      const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
+        await acquireTtsSlot();
         try {
           return await task();
         } finally {
