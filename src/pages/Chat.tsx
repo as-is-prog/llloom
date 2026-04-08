@@ -15,6 +15,7 @@ import { ContextMeter } from '../components/ContextMeter';
 import type { Message } from '../types';
 
 const TTS_SYNTH_ERROR_MESSAGE = '音声合成に失敗しました。TTS接続や設定を確認してください。';
+const MAX_TTS_SYNTH_CONCURRENCY = 3;
 
 export function Chat() {
   const { roomId, convId } = useParams<{ roomId: string; convId: string }>();
@@ -129,6 +130,34 @@ export function Chat() {
       const quoteState = createQuoteParserState();
       // 合成リクエストは並列に発火しつつ、enqueueの順序を保証するチェーン
       let ttsChain = Promise.resolve();
+      const inFlightTts = new Set<Promise<ArrayBuffer>>();
+
+      const runLimitedTtsSynthesis = async (task: () => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
+        while (inFlightTts.size >= MAX_TTS_SYNTH_CONCURRENCY) {
+          await Promise.race(inFlightTts).catch(() => undefined);
+        }
+        const run = Promise.resolve().then(task);
+        inFlightTts.add(run);
+        run.finally(() => {
+          inFlightTts.delete(run);
+        });
+        return run;
+      };
+
+      const scheduleTtsSegment = (seg: string) => {
+        const audioPromise = runLimitedTtsSynthesis(() => synthesize(settings.tts, seg, ttsAbort.signal));
+        ttsChain = ttsChain.then(async () => {
+          try {
+            const buf = await audioPromise;
+            ttsQueueRef.current.enqueue(buf);
+          } catch (e: unknown) {
+            if (e instanceof Error && e.name !== 'AbortError') {
+              console.warn('TTS:', e);
+              showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
+            }
+          }
+        });
+      };
 
       await streamChat({
         settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
@@ -142,18 +171,7 @@ export function Chat() {
           if (ttsEnabled) {
             const segments = extractQuotedSegments(fullContent, quoteState);
             for (const seg of segments) {
-              const audioPromise = synthesize(settings.tts, seg, ttsAbort.signal);
-              ttsChain = ttsChain.then(async () => {
-                try {
-                  const buf = await audioPromise;
-                  ttsQueueRef.current.enqueue(buf);
-                } catch (e: unknown) {
-                  if (e instanceof Error && e.name !== 'AbortError') {
-                    console.warn('TTS:', e);
-                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
-                  }
-                }
-              });
+              scheduleTtsSegment(seg);
             }
           }
         },
@@ -162,18 +180,7 @@ export function Chat() {
           if (ttsEnabled) {
             const remaining = extractQuotedSegments(fullContent, quoteState, true);
             for (const seg of remaining) {
-              const audioPromise = synthesize(settings.tts, seg, ttsAbort.signal);
-              ttsChain = ttsChain.then(async () => {
-                try {
-                  const buf = await audioPromise;
-                  ttsQueueRef.current.enqueue(buf);
-                } catch (e: unknown) {
-                  if (e instanceof Error && e.name !== 'AbortError') {
-                    console.warn('TTS:', e);
-                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
-                  }
-                }
-              });
+              scheduleTtsSegment(seg);
             }
           }
 
