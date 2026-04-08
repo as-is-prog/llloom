@@ -71,12 +71,16 @@ async function parseOllamaStream(
   signal?: AbortSignal,
 ) {
   const decoder = new TextDecoder();
+  let buffer = '';
   while (true) {
     if (signal?.aborted) break;
     const { done, value } = await reader.read();
     if (done) break;
-    const text = decoder.decode(value, { stream: true });
-    for (const line of text.split('\n')) {
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines[lines.length - 1] || '';
+    const completeLines = lines.slice(0, -1);
+    for (const line of completeLines) {
       if (!line.trim()) continue;
       try {
         const json = JSON.parse(line);
@@ -86,6 +90,15 @@ async function parseOllamaStream(
       } catch {
         // skip malformed lines
       }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const json = JSON.parse(buffer);
+      if (json.message?.content) onChunk(json.message.content);
+    } catch {
+      // ignore malformed trailing buffer
     }
   }
 }

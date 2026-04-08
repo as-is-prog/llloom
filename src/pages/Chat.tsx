@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -13,6 +13,8 @@ import { ChatInput } from '../components/ChatInput';
 import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 import { ContextMeter } from '../components/ContextMeter';
 import type { Message } from '../types';
+
+const TTS_SYNTH_ERROR_MESSAGE = '音声合成に失敗しました。TTS接続や設定を確認してください。';
 
 export function Chat() {
   const { roomId, convId } = useParams<{ roomId: string; convId: string }>();
@@ -34,6 +36,19 @@ export function Chat() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
   const ttsQueueRef = useRef(new TtsQueue());
+  const ttsToastTimerRef = useRef<number | null>(null);
+  const [ttsToastMessage, setTtsToastMessage] = useState('');
+
+  const showTtsToast = useCallback((message: string) => {
+    setTtsToastMessage(message);
+    if (ttsToastTimerRef.current !== null) {
+      window.clearTimeout(ttsToastTimerRef.current);
+    }
+    ttsToastTimerRef.current = window.setTimeout(() => {
+      setTtsToastMessage('');
+      ttsToastTimerRef.current = null;
+    }, 4000);
+  }, []);
 
   // Items = messages + optional typing indicator or streaming message
   const items = useMemo(() => {
@@ -69,6 +84,14 @@ export function Chat() {
       virtualizer.scrollToIndex(items.length - 1, { align: 'end' });
     }
   }, [items.length, streamingContent, virtualizer]);
+
+  useEffect(() => {
+    return () => {
+      if (ttsToastTimerRef.current !== null) {
+        window.clearTimeout(ttsToastTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -125,7 +148,10 @@ export function Chat() {
                   const buf = await audioPromise;
                   ttsQueueRef.current.enqueue(buf);
                 } catch (e: unknown) {
-                  if (e instanceof Error && e.name !== 'AbortError') console.warn('TTS:', e);
+                  if (e instanceof Error && e.name !== 'AbortError') {
+                    console.warn('TTS:', e);
+                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
+                  }
                 }
               });
             }
@@ -142,7 +168,10 @@ export function Chat() {
                   const buf = await audioPromise;
                   ttsQueueRef.current.enqueue(buf);
                 } catch (e: unknown) {
-                  if (e instanceof Error && e.name !== 'AbortError') console.warn('TTS:', e);
+                  if (e instanceof Error && e.name !== 'AbortError') {
+                    console.warn('TTS:', e);
+                    showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
+                  }
                 }
               });
             }
@@ -172,7 +201,7 @@ export function Chat() {
         signal: controller.signal,
       });
     },
-    [room, preset, convId, settings, startStreaming, appendStreamingContent, setStreamingContent, stopStreaming],
+    [room, preset, convId, settings, startStreaming, appendStreamingContent, setStreamingContent, stopStreaming, showTtsToast],
   );
 
   const sendMessage = useCallback(
@@ -274,6 +303,12 @@ export function Chat() {
           ) : null
         }
       />
+
+      {ttsToastMessage && (
+        <div className="fixed top-14 right-4 z-50 px-3 py-2 rounded-lg bg-amber-500/90 text-slate-950 text-xs font-medium shadow-lg">
+          {ttsToastMessage}
+        </div>
+      )}
 
       {preset && (
         <div className="px-4 py-1.5 border-b border-slate-800">
