@@ -37,6 +37,7 @@ export function Chat() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
   const ttsQueueRef = useRef(new TtsQueue());
+  const ttsAbortRef = useRef<AbortController | null>(null);
   const ttsToastTimerRef = useRef<number | null>(null);
   const [ttsToastMessage, setTtsToastMessage] = useState('');
 
@@ -117,6 +118,10 @@ export function Chat() {
     async () => {
       if (!room || !preset || !convId) return;
 
+      // 前回のTTS状態をクリーンアップ（旧合成の中止＋キュークリア）
+      if (ttsAbortRef.current) ttsAbortRef.current.abort();
+      ttsQueueRef.current.clear();
+
       const allMessages = await db.messages
         .where('conversationId')
         .equals(convId)
@@ -127,6 +132,7 @@ export function Chat() {
       let fullContent = '';
       const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
       const ttsAbort = new AbortController();
+      ttsAbortRef.current = ttsAbort;
       const quoteState = createQuoteParserState();
       // 合成リクエストは並列に発火しつつ、enqueueの順序を保証するチェーン
       let ttsChain = Promise.resolve();
@@ -151,7 +157,7 @@ export function Chat() {
             const buf = await audioPromise;
             ttsQueueRef.current.enqueue(buf);
           } catch (e: unknown) {
-            if (e instanceof Error && e.name !== 'AbortError') {
+            if (!ttsAbort.signal.aborted) {
               console.warn('TTS:', e);
               showTtsToast(TTS_SYNTH_ERROR_MESSAGE);
             }
@@ -302,7 +308,7 @@ export function Chat() {
         right={
           isStreaming ? (
             <button
-              onClick={() => { ttsQueueRef.current.clear(); stopStreaming(); }}
+              onClick={() => { if (ttsAbortRef.current) ttsAbortRef.current.abort(); ttsQueueRef.current.clear(); stopStreaming(); }}
               className="text-xs text-red-400 hover:text-red-300 font-medium"
             >
               Stop

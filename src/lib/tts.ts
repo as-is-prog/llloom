@@ -2,6 +2,8 @@ import type { TtsSettings } from '../types';
 
 const MAX_TTS_RETRIES = 2;
 const TTS_RETRY_BASE_MS = 500;
+/** 1回のリクエストがこの時間を超えたらタイムアウト扱いにする */
+const TTS_REQUEST_TIMEOUT_MS = 30_000;
 
 export async function synthesize(
   settings: TtsSettings,
@@ -18,11 +20,18 @@ export async function synthesize(
   });
 
   for (let attempt = 0; ; attempt++) {
+    // リクエスト単位のタイムアウト＋呼び出し元のabortを合成
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), TTS_REQUEST_TIMEOUT_MS);
+    const forwardAbort = () => ac.abort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    if (signal?.aborted) ac.abort();
+
     try {
       const res = await fetch(`${settings.endpointUrl}/voice?${params}`, {
         method: 'POST',
         headers: { 'X-Request-Source': 'llloom' },
-        signal,
+        signal: ac.signal,
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -30,8 +39,12 @@ export async function synthesize(
       }
       return await res.arrayBuffer();
     } catch (e) {
-      if (signal?.aborted || attempt >= MAX_TTS_RETRIES) throw e;
+      if (signal?.aborted) throw e;
+      if (attempt >= MAX_TTS_RETRIES) throw e;
       await new Promise((r) => setTimeout(r, TTS_RETRY_BASE_MS * (attempt + 1)));
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', forwardAbort);
     }
   }
 }
@@ -111,7 +124,8 @@ export class TtsQueue {
   private queue: ArrayBuffer[] = [];
   private playing = false;
   private ctx: AudioContext | null = null;
-  private aborted = false;
+  /** clear() のたびにインクリメント。旧 playNext が残存しても世代違いで自動退出する */
+  private generation = 0;
   private currentSource: AudioBufferSourceNode | null = null;
 
   /**
@@ -130,7 +144,7 @@ export class TtsQueue {
 
   clear() {
     this.queue = [];
-    this.aborted = true;
+    this.generation++;
     if (this.currentSource) {
       try { this.currentSource.stop(); } catch { /* already stopped */ }
       this.currentSource = null;
@@ -145,14 +159,14 @@ export class TtsQueue {
     }
 
     this.playing = true;
-    this.aborted = false;
+    const gen = this.generation;
     const buf = this.queue.shift()!;
 
     try {
       if (!this.ctx) this.ctx = new AudioContext();
       if (this.ctx.state === 'suspended') await this.ctx.resume();
       const audioBuf = await this.ctx.decodeAudioData(buf.slice(0));
-      if (this.aborted) return;
+      if (this.generation !== gen) return;
 
       const source = this.ctx.createBufferSource();
       source.buffer = audioBuf;
@@ -160,7 +174,13 @@ export class TtsQueue {
       this.currentSource = source;
 
       await new Promise<void>((resolve) => {
-        source.onended = () => resolve();
+        // onended が発火しない場合に備えた安全タイムアウト
+        const safetyMs = (audioBuf.duration + 2) * 1000;
+        const timer = setTimeout(() => resolve(), safetyMs);
+        source.onended = () => {
+          clearTimeout(timer);
+          resolve();
+        };
         source.start();
       });
     } catch (e) {
@@ -168,6 +188,6 @@ export class TtsQueue {
     }
 
     this.currentSource = null;
-    if (!this.aborted) this.playNext();
+    if (this.generation === gen) this.playNext();
   }
 }
