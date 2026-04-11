@@ -15,7 +15,7 @@ import { ContextMeter } from '../components/ContextMeter';
 import type { Message } from '../types';
 
 const TTS_SYNTH_ERROR_MESSAGE = '音声合成に失敗しました。TTS接続や設定を確認してください。';
-const MAX_TTS_SYNTH_CONCURRENCY = 3;
+const MAX_TTS_SYNTH_CONCURRENCY = 2;
 
 export function Chat() {
   const { roomId, convId } = useParams<{ roomId: string; convId: string }>();

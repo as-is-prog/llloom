@@ -1,5 +1,8 @@
 import type { TtsSettings } from '../types';
 
+const MAX_TTS_RETRIES = 2;
+const TTS_RETRY_BASE_MS = 500;
+
 export async function synthesize(
   settings: TtsSettings,
   text: string,
@@ -14,16 +17,23 @@ export async function synthesize(
     length: String(settings.speed),
   });
 
-  const res = await fetch(`${settings.endpointUrl}/voice?${params}`, {
-    method: 'POST',
-    headers: { 'X-Request-Source': 'llloom' },
-    signal,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`TTS error: ${res.status} ${body}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(`${settings.endpointUrl}/voice?${params}`, {
+        method: 'POST',
+        headers: { 'X-Request-Source': 'llloom' },
+        signal,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`TTS error: ${res.status} ${body}`);
+      }
+      return await res.arrayBuffer();
+    } catch (e) {
+      if (signal?.aborted || attempt >= MAX_TTS_RETRIES) throw e;
+      await new Promise((r) => setTimeout(r, TTS_RETRY_BASE_MS * (attempt + 1)));
+    }
   }
-  return res.arrayBuffer();
 }
 
 // 句読点で分割するが、直後に閉じ括弧が続く場合は分割しない
