@@ -11,7 +11,7 @@ export type VoiceCallPhase = 'idle' | 'listening' | 'processing' | 'speaking';
 
 const MAX_TTS_SYNTH_CONCURRENCY = 2;
 /** VADで「無音」と判定するまでのミリ秒 */
-const VAD_SILENCE_DURATION_MS = 600;
+const DEFAULT_VAD_SILENCE_DURATION_MS = 1200;
 
 interface UseVoiceCallOptions {
   roomId: string;
@@ -353,7 +353,7 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
       } else if (isRecordingRef.current) {
         if (vadSilenceStartRef.current === null) {
           vadSilenceStartRef.current = Date.now();
-        } else if (Date.now() - vadSilenceStartRef.current > VAD_SILENCE_DURATION_MS) {
+        } else if (Date.now() - vadSilenceStartRef.current > (settings.voiceCall.vadSilenceDuration || DEFAULT_VAD_SILENCE_DURATION_MS)) {
           vadSilenceStartRef.current = null;
           stopRecording().then(processRecording);
         }

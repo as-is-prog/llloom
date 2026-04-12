@@ -26,6 +26,7 @@ export const useSettingsStore = create<SettingsStore>()(
         inputMode: 'vad',
         silenceThreshold: 10,
         vadSensitivity: 30,
+        vadSilenceDuration: 1200,
       },
       update: (settings) => set(settings),
     }),

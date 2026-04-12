@@ -10,6 +10,7 @@ export interface VoiceCallSettings {
   inputMode: 'vad' | 'ptt';
   silenceThreshold: number; // seconds before AI self-initiates
   vadSensitivity: number; // 0-100, volume threshold for VAD
+  vadSilenceDuration: number; // ms, silence duration to end recording
 }
 
 export interface TtsSettings {

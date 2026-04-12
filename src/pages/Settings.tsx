@@ -263,18 +263,32 @@ export function Settings() {
           </div>
 
           {voiceCall.inputMode === 'vad' && (
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">
-                VAD Sensitivity: {voiceCall.vadSensitivity}%
-              </label>
-              <input
-                type="range"
-                min={5} max={80} step={5}
-                value={voiceCall.vadSensitivity}
-                onChange={(e) => updateVoiceCall({ vadSensitivity: Number(e.target.value) })}
-                className="w-full"
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">
+                  VAD Sensitivity: {voiceCall.vadSensitivity}%
+                </label>
+                <input
+                  type="range"
+                  min={5} max={80} step={5}
+                  value={voiceCall.vadSensitivity}
+                  onChange={(e) => updateVoiceCall({ vadSensitivity: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">
+                  Silence Duration: {voiceCall.vadSilenceDuration ?? 1200}ms
+                </label>
+                <input
+                  type="range"
+                  min={400} max={3000} step={100}
+                  value={voiceCall.vadSilenceDuration ?? 1200}
+                  onChange={(e) => updateVoiceCall({ vadSilenceDuration: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+            </>
           )}
 
           <div>
