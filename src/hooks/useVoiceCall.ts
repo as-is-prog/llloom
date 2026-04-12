@@ -186,6 +186,17 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
           if (!ttsEnabled || ttsSegmentsRef.current.length === 0) {
             setPhase('idle');
             if (activeRef.current) startSilenceTimer();
+          } else {
+            // 全TTSセグメントが enqueue され終わってから end-of-stream を通知する。
+            // これにより、最後のTTS再生が実際に完了するまで onAllPlayed の発火
+            // （＝沈黙タイマー開始）が抑止される。
+            // ttsChain は scheduleTtsSegment で順次チェーンされており、この時点で
+            // .then() するとすべての enqueue 完了後に実行される。
+            ttsChain.then(() => {
+              if (activeRef.current && !ttsAbort.signal.aborted) {
+                ttsQueueRef.current.markEndOfStream();
+              }
+            });
           }
         },
         onError: (error) => {

@@ -202,9 +202,17 @@ export class TtsQueue {
   private generation = 0;
   private currentSource: AudioBufferSourceNode | null = null;
   private _playedCount = 0;
+  /**
+   * ストリーム終了フラグ。markEndOfStream() が呼ばれるまで false。
+   * これが true かつキューが空かつ再生中でない時に onAllPlayed が発火する。
+   * LLMのストリーミング中はTTS合成が間に合わずに一時的にキューが空になることがあるため、
+   * 単にキューが空になった時点で onAllPlayed を発火すると、まだ続きのTTSがあるのに
+   * 沈黙タイマーが開始してしまう。このフラグでそれを防ぐ。
+   */
+  private endOfStream = false;
   /** 各セグメント再生完了時に呼ばれる */
   onSegmentPlayed: (() => void) | null = null;
-  /** キュー内の全セグメント再生完了時に呼ばれる */
+  /** キュー内の全セグメント再生完了時に呼ばれる（markEndOfStream 後のみ発火） */
   onAllPlayed: (() => void) | null = null;
 
   get playedCount() { return this._playedCount; }
@@ -233,6 +241,20 @@ export class TtsQueue {
     }
     this.playing = false;
     this._playedCount = 0;
+    this.endOfStream = false;
+  }
+
+  /**
+   * 現在のストリームにこれ以上 enqueue が来ないことを通知する。
+   * 呼び出し時点で既にキューが空かつ再生中でなければ onAllPlayed を即時発火する。
+   * そうでなければ、最後のセグメント再生完了時に発火する。
+   */
+  markEndOfStream() {
+    if (this.endOfStream) return;
+    this.endOfStream = true;
+    if (!this.playing && this.queue.length === 0) {
+      this.onAllPlayed?.();
+    }
   }
 
   private async playNext() {
@@ -276,7 +298,12 @@ export class TtsQueue {
       this.onSegmentPlayed?.();
       if (this.queue.length === 0) {
         this.playing = false;
-        this.onAllPlayed?.();
+        // ストリーム終了が通知されている時のみ発火。
+        // LLMストリーミング中にTTS合成が間に合わずキューが一時的に空になっても、
+        // 続くセグメントが enqueue されるまでは onAllPlayed を抑止する。
+        if (this.endOfStream) {
+          this.onAllPlayed?.();
+        }
       } else {
         this.playNext();
       }
