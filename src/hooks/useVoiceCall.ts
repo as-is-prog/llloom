@@ -44,6 +44,8 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   /** ストリーミング中のLLM全文 */
   const llmFullContentRef = useRef('');
   const activeRef = useRef(false);
+  /** refで保持して循環依存を断ち切る */
+  const handleSilenceTriggerRef = useRef<() => void>(() => {});
 
   // --- Silence timer ---
   const clearSilenceTimer = useCallback(() => {
@@ -58,10 +60,9 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     const thresholdMs = settings.voiceCall.silenceThreshold * 1000;
     silenceTimerRef.current = window.setTimeout(() => {
       silenceTimerRef.current = null;
-      if (activeRef.current) handleSilenceTrigger();
+      if (activeRef.current) handleSilenceTriggerRef.current();
     }, thresholdMs);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.voiceCall.silenceThreshold]);
+  }, [settings.voiceCall.silenceThreshold, clearSilenceTimer]);
 
   // --- LLM + TTS pipeline (shared between user utterance and silence trigger) ---
   const runLlmTtsPipeline = useCallback(
@@ -262,8 +263,10 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     const ephemeralMsg = { role: 'user' as const, content: `(ユーザーが${threshold}秒沈黙しています)` };
     // saveUserMsg=false: don't persist the silence prompt
     runLlmTtsPipeline([ephemeralMsg], false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.voiceCall.silenceThreshold, runLlmTtsPipeline]);
+
+  // refを常に最新に保つ（startSilenceTimerとの循環依存を回避）
+  handleSilenceTriggerRef.current = handleSilenceTrigger;
 
   // --- Recording ---
   const stopRecording = useCallback((): Promise<Blob> => {
