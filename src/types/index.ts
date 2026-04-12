@@ -2,6 +2,14 @@ export interface AppSettings {
   endpointUrl: string;
   apiType: 'ollama' | 'openai';
   tts: TtsSettings;
+  voiceCall: VoiceCallSettings;
+}
+
+export interface VoiceCallSettings {
+  sttEndpointUrl: string;
+  inputMode: 'vad' | 'ptt';
+  silenceThreshold: number; // seconds before AI self-initiates
+  vadSensitivity: number; // 0-100, volume threshold for VAD
 }
 
 export interface TtsSettings {

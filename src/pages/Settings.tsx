@@ -5,16 +5,17 @@ import { db } from '../lib/db';
 import { generateId } from '../lib/utils';
 import { useSettingsStore } from '../stores/settingsStore';
 import { PageHeader } from '../components/PageHeader';
-import type { Preset, TtsSettings } from '../types';
+import type { Preset, TtsSettings, VoiceCallSettings } from '../types';
 
 export function Settings() {
   const navigate = useNavigate();
-  const { endpointUrl, apiType, tts, update } = useSettingsStore();
+  const { endpointUrl, apiType, tts, voiceCall, update } = useSettingsStore();
   const presets = useLiveQuery(() => db.presets.toArray());
   const [ttsModels, setTtsModels] = useState<{ name: string; styles: string[] }[]>([]);
   const [ttsStatus, setTtsStatus] = useState<string>('');
 
   const updateTts = (partial: Partial<TtsSettings>) => update({ tts: { ...tts, ...partial } });
+  const updateVoiceCall = (partial: Partial<VoiceCallSettings>) => update({ voiceCall: { ...voiceCall, ...partial } });
 
   const fetchTtsModels = async () => {
     if (!tts.endpointUrl) return;
@@ -183,6 +184,60 @@ export function Settings() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-slate-400">Voice Call (STT)</h2>
+
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">STT Endpoint URL</label>
+            <input
+              value={voiceCall.sttEndpointUrl}
+              onChange={(e) => updateVoiceCall({ sttEndpointUrl: e.target.value })}
+              placeholder="http://localhost:8000"
+              className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Input Mode</label>
+            <select
+              value={voiceCall.inputMode}
+              onChange={(e) => updateVoiceCall({ inputMode: e.target.value as 'vad' | 'ptt' })}
+              className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+            >
+              <option value="vad">VAD (Voice Activity Detection)</option>
+              <option value="ptt">PTT (Push to Talk)</option>
+            </select>
+          </div>
+
+          {voiceCall.inputMode === 'vad' && (
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">
+                VAD Sensitivity: {voiceCall.vadSensitivity}%
+              </label>
+              <input
+                type="range"
+                min={5} max={80} step={5}
+                value={voiceCall.vadSensitivity}
+                onChange={(e) => updateVoiceCall({ vadSensitivity: Number(e.target.value) })}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">
+              Silence Threshold: {voiceCall.silenceThreshold}s
+            </label>
+            <input
+              type="range"
+              min={3} max={30} step={1}
+              value={voiceCall.silenceThreshold}
+              onChange={(e) => updateVoiceCall({ silenceThreshold: Number(e.target.value) })}
+              className="w-full"
+            />
+          </div>
         </section>
 
         <section className="space-y-3">

@@ -127,6 +127,14 @@ export class TtsQueue {
   /** clear() のたびにインクリメント。旧 playNext が残存しても世代違いで自動退出する */
   private generation = 0;
   private currentSource: AudioBufferSourceNode | null = null;
+  private _playedCount = 0;
+  /** 各セグメント再生完了時に呼ばれる */
+  onSegmentPlayed: (() => void) | null = null;
+  /** キュー内の全セグメント再生完了時に呼ばれる */
+  onAllPlayed: (() => void) | null = null;
+
+  get playedCount() { return this._playedCount; }
+  get isPlaying() { return this.playing; }
 
   /**
    * ユーザー操作（タップ/クリック）のコンテキスト内で呼ぶ。
@@ -150,6 +158,7 @@ export class TtsQueue {
       this.currentSource = null;
     }
     this.playing = false;
+    this._playedCount = 0;
   }
 
   private async playNext() {
@@ -188,6 +197,15 @@ export class TtsQueue {
     }
 
     this.currentSource = null;
-    if (this.generation === gen) this.playNext();
+    if (this.generation === gen) {
+      this._playedCount++;
+      this.onSegmentPlayed?.();
+      if (this.queue.length === 0) {
+        this.playing = false;
+        this.onAllPlayed?.();
+      } else {
+        this.playNext();
+      }
+    }
   }
 }

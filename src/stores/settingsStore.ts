@@ -19,6 +19,12 @@ export const useSettingsStore = create<SettingsStore>()(
         styleWeight: 1,
         speed: 1.0,
       },
+      voiceCall: {
+        sttEndpointUrl: 'http://localhost:8000',
+        inputMode: 'vad',
+        silenceThreshold: 10,
+        vadSensitivity: 30,
+      },
       update: (settings) => set(settings),
     }),
     { name: 'llloom-settings' },
