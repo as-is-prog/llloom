@@ -10,6 +10,17 @@ export async function synthesize(
   text: string,
   signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
+  if (settings.engine === 'voicevox') {
+    return synthesizeVoiceVox(settings, text, signal);
+  }
+  return synthesizeSbv2(settings, text, signal);
+}
+
+async function synthesizeSbv2(
+  settings: TtsSettings,
+  text: string,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
   const params = new URLSearchParams({
     text,
     model_name: settings.modelName,
@@ -20,7 +31,6 @@ export async function synthesize(
   });
 
   for (let attempt = 0; ; attempt++) {
-    // リクエスト単位のタイムアウト＋呼び出し元のabortを合成
     const ac = new AbortController();
     const timeoutId = setTimeout(() => ac.abort(), TTS_REQUEST_TIMEOUT_MS);
     const forwardAbort = () => ac.abort();
@@ -47,6 +57,70 @@ export async function synthesize(
       signal?.removeEventListener('abort', forwardAbort);
     }
   }
+}
+
+async function synthesizeVoiceVox(
+  settings: TtsSettings,
+  text: string,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const speakerId = String(settings.speakerId);
+
+  for (let attempt = 0; ; attempt++) {
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), TTS_REQUEST_TIMEOUT_MS);
+    const forwardAbort = () => ac.abort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    if (signal?.aborted) ac.abort();
+
+    try {
+      // Step 1: audio_query
+      const queryRes = await fetch(
+        `${settings.endpointUrl}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`,
+        { method: 'POST', signal: ac.signal },
+      );
+      if (!queryRes.ok) {
+        const body = await queryRes.text().catch(() => '');
+        throw new Error(`VoiceVox audio_query error: ${queryRes.status} ${body}`);
+      }
+      const query = await queryRes.json();
+
+      // speedScaleを設定から反映
+      query.speedScale = settings.speed;
+
+      // Step 2: synthesis
+      const synthRes = await fetch(
+        `${settings.endpointUrl}/synthesis?speaker=${speakerId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(query),
+          signal: ac.signal,
+        },
+      );
+      if (!synthRes.ok) {
+        const body = await synthRes.text().catch(() => '');
+        throw new Error(`VoiceVox synthesis error: ${synthRes.status} ${body}`);
+      }
+      return await synthRes.arrayBuffer();
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      if (attempt >= MAX_TTS_RETRIES) throw e;
+      await new Promise((r) => setTimeout(r, TTS_RETRY_BASE_MS * (attempt + 1)));
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', forwardAbort);
+    }
+  }
+}
+
+/** VoiceVoxのスピーカー一覧を取得 */
+export async function fetchVoiceVoxSpeakers(
+  endpointUrl: string,
+): Promise<{ name: string; styles: { name: string; id: number }[] }[]> {
+  const res = await fetch(`${endpointUrl}/speakers`);
+  if (!res.ok) throw new Error(`VoiceVox speakers error: ${res.status}`);
+  return res.json();
 }
 
 // 句読点で分割するが、直後に閉じ括弧が続く場合は分割しない

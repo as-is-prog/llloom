@@ -105,7 +105,7 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
       ttsQueueRef.current.warm();
       const ttsAbort = new AbortController();
       ttsAbortRef.current = ttsAbort;
-      const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
+      const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && (settings.tts.engine === 'voicevox' || settings.tts.modelName);
       const quoteState = createQuoteParserState();
       let ttsChain = Promise.resolve();
       const inFlightTts = new Set<Promise<ArrayBuffer>>();

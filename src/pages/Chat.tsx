@@ -139,7 +139,7 @@ export function Chat() {
       const controller = startStreaming();
 
       let fullContent = '';
-      const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && settings.tts.modelName;
+      const ttsEnabled = settings.tts.enabled && settings.tts.endpointUrl && (settings.tts.engine === 'voicevox' || settings.tts.modelName);
       const ttsAbort = new AbortController();
       ttsAbortRef.current = ttsAbort;
       const quoteState = createQuoteParserState();

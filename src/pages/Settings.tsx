@@ -12,6 +12,7 @@ export function Settings() {
   const { endpointUrl, apiType, tts, voiceCall, update } = useSettingsStore();
   const presets = useLiveQuery(() => db.presets.toArray());
   const [ttsModels, setTtsModels] = useState<{ name: string; styles: string[] }[]>([]);
+  const [vvSpeakers, setVvSpeakers] = useState<{ name: string; styles: { name: string; id: number }[] }[]>([]);
   const [ttsStatus, setTtsStatus] = useState<string>('');
 
   const updateTts = (partial: Partial<TtsSettings>) => update({ tts: { ...tts, ...partial } });
@@ -21,18 +22,28 @@ export function Settings() {
     if (!tts.endpointUrl) return;
     setTtsStatus('Loading...');
     try {
-      const res = await fetch(`${tts.endpointUrl}/models/info`);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const info = await res.json();
-      const models = Object.values(info).map((m: any) => ({
-        name: Object.keys(m.spk2id)[0] ?? m.model_path,
-        styles: Object.keys(m.style2id),
-      }));
-      setTtsModels(models);
-      setTtsStatus(`${models.length} model(s) found`);
+      if (tts.engine === 'voicevox') {
+        const { fetchVoiceVoxSpeakers } = await import('../lib/tts');
+        const speakers = await fetchVoiceVoxSpeakers(tts.endpointUrl);
+        setVvSpeakers(speakers);
+        setTtsModels([]);
+        setTtsStatus(`${speakers.length} speaker(s) found`);
+      } else {
+        const res = await fetch(`${tts.endpointUrl}/models/info`);
+        if (!res.ok) throw new Error(`${res.status}`);
+        const info = await res.json();
+        const models = Object.values(info).map((m: any) => ({
+          name: Object.keys(m.spk2id)[0] ?? m.model_path,
+          styles: Object.keys(m.style2id),
+        }));
+        setTtsModels(models);
+        setVvSpeakers([]);
+        setTtsStatus(`${models.length} model(s) found`);
+      }
     } catch (e) {
       setTtsStatus(`Error: ${e}`);
       setTtsModels([]);
+      setVvSpeakers([]);
     }
   };
 
@@ -86,7 +97,7 @@ export function Settings() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-medium text-slate-400">TTS (Style-Bert-VITS2)</h2>
+          <h2 className="text-sm font-medium text-slate-400">TTS</h2>
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -101,12 +112,29 @@ export function Settings() {
           {tts.enabled && (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-slate-500 mb-1">SBV2 Endpoint URL</label>
+                <label className="block text-xs text-slate-500 mb-1">Engine</label>
+                <select
+                  value={tts.engine}
+                  onChange={(e) => {
+                    updateTts({ engine: e.target.value as 'sbv2' | 'voicevox' });
+                    setTtsModels([]);
+                    setVvSpeakers([]);
+                    setTtsStatus('');
+                  }}
+                  className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                >
+                  <option value="sbv2">Style-Bert-VITS2</option>
+                  <option value="voicevox">VoiceVox</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Endpoint URL</label>
                 <div className="flex gap-2">
                   <input
                     value={tts.endpointUrl}
                     onChange={(e) => updateTts({ endpointUrl: e.target.value })}
-                    placeholder="https://example.ts.net/other-api/sbv2"
+                    placeholder={tts.engine === 'voicevox' ? 'http://localhost:50021' : 'https://example.ts.net/other-api/sbv2'}
                     className="flex-1 bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
                   />
                   <button
@@ -119,56 +147,79 @@ export function Settings() {
                 {ttsStatus && <p className="text-xs text-slate-500 mt-1">{ttsStatus}</p>}
               </div>
 
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Model</label>
-                {ttsModels.length > 0 ? (
-                  <select
-                    value={tts.modelName}
-                    onChange={(e) => updateTts({ modelName: e.target.value, style: 'Neutral' })}
-                    className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
-                  >
-                    <option value="">-- select --</option>
-                    {ttsModels.map((m) => (
-                      <option key={m.name} value={m.name}>{m.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={tts.modelName}
-                    onChange={(e) => updateTts({ modelName: e.target.value })}
-                    placeholder="Model name"
-                    className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
-                  />
-                )}
-              </div>
+              {tts.engine === 'sbv2' && (
+                <>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Model</label>
+                    {ttsModels.length > 0 ? (
+                      <select
+                        value={tts.modelName}
+                        onChange={(e) => updateTts({ modelName: e.target.value, style: 'Neutral' })}
+                        className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                      >
+                        <option value="">-- select --</option>
+                        {ttsModels.map((m) => (
+                          <option key={m.name} value={m.name}>{m.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={tts.modelName}
+                        onChange={(e) => updateTts({ modelName: e.target.value })}
+                        placeholder="Model name"
+                        className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                      />
+                    )}
+                  </div>
 
-              {selectedModelStyles.length > 0 && (
+                  {selectedModelStyles.length > 0 && (
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Style</label>
+                      <select
+                        value={tts.style}
+                        onChange={(e) => updateTts({ style: e.target.value })}
+                        className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+                      >
+                        {selectedModelStyles.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">
+                      Style Weight: {tts.styleWeight}
+                    </label>
+                    <input
+                      type="range"
+                      min={0} max={20} step={1}
+                      value={tts.styleWeight}
+                      onChange={(e) => updateTts({ styleWeight: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                  </div>
+                </>
+              )}
+
+              {tts.engine === 'voicevox' && vvSpeakers.length > 0 && (
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Style</label>
+                  <label className="block text-xs text-slate-500 mb-1">Speaker</label>
                   <select
-                    value={tts.style}
-                    onChange={(e) => updateTts({ style: e.target.value })}
+                    value={tts.speakerId}
+                    onChange={(e) => updateTts({ speakerId: Number(e.target.value) })}
                     className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
                   >
-                    {selectedModelStyles.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
+                    {vvSpeakers.map((sp) =>
+                      sp.styles.map((st) => (
+                        <option key={st.id} value={st.id}>
+                          {sp.name} - {st.name}
+                        </option>
+                      )),
+                    )}
                   </select>
                 </div>
               )}
-
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">
-                  Style Weight: {tts.styleWeight}
-                </label>
-                <input
-                  type="range"
-                  min={0} max={20} step={1}
-                  value={tts.styleWeight}
-                  onChange={(e) => updateTts({ styleWeight: Number(e.target.value) })}
-                  className="w-full"
-                />
-              </div>
 
               <div>
                 <label className="block text-xs text-slate-500 mb-1">

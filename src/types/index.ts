@@ -14,11 +14,17 @@ export interface VoiceCallSettings {
 
 export interface TtsSettings {
   enabled: boolean;
+  engine: 'sbv2' | 'voicevox';
   endpointUrl: string;
+  /** SBV2: model name */
   modelName: string;
+  /** SBV2: style name */
   style: string;
+  /** SBV2: style weight */
   styleWeight: number;
   speed: number;
+  /** VoiceVox: speaker ID */
+  speakerId: number;
 }
 
 export interface Preset {

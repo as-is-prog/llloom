@@ -13,11 +13,13 @@ export const useSettingsStore = create<SettingsStore>()(
       apiType: 'ollama',
       tts: {
         enabled: false,
+        engine: 'sbv2',
         endpointUrl: '',
         modelName: '',
         style: 'Neutral',
         styleWeight: 1,
         speed: 1.0,
+        speakerId: 0,
       },
       voiceCall: {
         sttEndpointUrl: 'http://localhost:8000',
