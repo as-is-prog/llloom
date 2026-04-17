@@ -11,6 +11,8 @@ export interface VoiceCallSettings {
   silenceThreshold: number; // seconds before AI self-initiates
   vadSensitivity: number; // 0-100, volume threshold for VAD
   vadSilenceDuration: number; // ms, silence duration to end recording
+  /** Default ON/OFF state for the call-mode camera toggle. User can flip mid-call. */
+  cameraDefaultOn: boolean;
 }
 
 export interface TtsSettings {
