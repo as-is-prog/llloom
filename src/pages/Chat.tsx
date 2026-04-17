@@ -15,6 +15,7 @@ import { ContextMeter } from '../components/ContextMeter';
 import { useVoiceCall } from '../hooks/useVoiceCall';
 import { VoiceCallOverlay } from '../components/VoiceCallOverlay';
 import type { Message } from '../types';
+import type { EphemeralImage } from '../lib/image';
 
 const TTS_SYNTH_ERROR_MESSAGE = '音声合成に失敗しました。TTS接続や設定を確認してください。';
 const MAX_TTS_SYNTH_CONCURRENCY = 2;
@@ -124,7 +125,7 @@ export function Chat() {
 
   /** Stream an AI response based on the current messages in the DB */
   const requestAIResponse = useCallback(
-    async () => {
+    async (ephemeralImages?: EphemeralImage[]) => {
       if (!room || !preset || !convId) return;
 
       // 前回のTTS状態をクリーンアップ（旧合成の中止＋キュークリア）
@@ -179,6 +180,7 @@ export function Chat() {
         preset,
         systemPrompt: room.systemPrompt,
         messages: allMessages.map((m) => ({ role: m.role, content: m.content })),
+        ephemeralImages,
         onChunk: (chunk) => {
           fullContent += chunk;
           appendStreamingContent(chunk);
@@ -227,7 +229,7 @@ export function Chat() {
   );
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, images?: EphemeralImage[]) => {
       if (!room || !preset || !convId) return;
       if (settings.tts.enabled) ttsQueueRef.current.warm();
 
@@ -249,7 +251,7 @@ export function Chat() {
       }
       await db.rooms.update(room.id, { updatedAt: now });
 
-      await requestAIResponse();
+      await requestAIResponse(images);
     },
     [room, preset, convId, requestAIResponse],
   );
@@ -345,9 +347,12 @@ export function Chat() {
           subtitle={voiceCall.subtitle}
           pttHeld={voiceCall.pttHeld}
           inputMode={settings.voiceCall.inputMode}
+          cameraActive={voiceCall.cameraActive}
+          cameraStream={voiceCall.cameraStream}
           onPttDown={voiceCall.pttDown}
           onPttUp={voiceCall.pttUp}
           onEnd={voiceCall.stop}
+          onToggleCamera={voiceCall.toggleCamera}
         />
       )}
 

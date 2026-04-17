@@ -4,6 +4,7 @@ import { generateId } from '../lib/utils';
 import { streamChat } from '../lib/api';
 import { synthesize, extractQuotedSegments, createQuoteParserState, TtsQueue } from '../lib/tts';
 import { transcribe } from '../lib/stt';
+import { videoFrameToEphemeralImage, type EphemeralImage } from '../lib/image';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { Message, Preset } from '../types';
 
@@ -26,6 +27,8 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   const [phase, setPhase] = useState<VoiceCallPhase>('idle');
   const [subtitle, setSubtitle] = useState('');
   const [pttHeld, setPttHeld] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   // Refs for long-lived mutable state
   const ttsQueueRef = useRef(new TtsQueue());
@@ -46,6 +49,11 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   const activeRef = useRef(false);
   /** refで保持して循環依存を断ち切る */
   const handleSilenceTriggerRef = useRef<() => void>(() => {});
+  // Camera refs
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  /** Detached <video> element used only for canvas snapshots. */
+  const captureVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraActiveRef = useRef(false);
 
   // --- Silence timer ---
   const clearSilenceTimer = useCallback(() => {
@@ -64,9 +72,69 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     }, thresholdMs);
   }, [settings.voiceCall.silenceThreshold, clearSilenceTimer]);
 
+  // --- Camera ---
+  const stopCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+    if (captureVideoRef.current) {
+      captureVideoRef.current.srcObject = null;
+      captureVideoRef.current = null;
+    }
+    cameraActiveRef.current = false;
+    setCameraActive(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    if (cameraActiveRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+      });
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      video.srcObject = stream;
+      // playが拒否されてもメタデータが入ればdrawImageは成立するので、失敗は無視する
+      await video.play().catch(() => undefined);
+      captureVideoRef.current = video;
+
+      cameraActiveRef.current = true;
+      setCameraActive(true);
+    } catch (e) {
+      console.error('Camera access failed:', e);
+      stopCamera();
+    }
+  }, [stopCamera]);
+
+  const toggleCamera = useCallback(() => {
+    if (cameraActiveRef.current) stopCamera();
+    else void startCamera();
+  }, [startCamera, stopCamera]);
+
+  /** Capture a snapshot as an ephemeral image. Returns null if camera is off or capture fails. */
+  const captureSnapshot = useCallback(async (): Promise<EphemeralImage | null> => {
+    const video = captureVideoRef.current;
+    if (!cameraActiveRef.current || !video) return null;
+    try {
+      return await videoFrameToEphemeralImage(video);
+    } catch (e) {
+      console.warn('Snapshot failed:', e);
+      return null;
+    }
+  }, []);
+
   // --- LLM + TTS pipeline (shared between user utterance and silence trigger) ---
   const runLlmTtsPipeline = useCallback(
-    async (extraMessages: Pick<Message, 'role' | 'content'>[], saveUserMsg: boolean) => {
+    async (
+      extraMessages: Pick<Message, 'role' | 'content'>[],
+      saveUserMsg: boolean,
+      ephemeralImages?: EphemeralImage[],
+    ) => {
       clearSilenceTimer();
       setPhase('processing');
       setSubtitle('');
@@ -153,6 +221,7 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
         preset,
         systemPrompt,
         messages: history,
+        ephemeralImages,
         onChunk: (chunk) => {
           llmFullContentRef.current += chunk;
           setSubtitle(llmFullContentRef.current);
@@ -269,12 +338,14 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   }, [convId, clearSilenceTimer]);
 
   // --- Handle silence trigger (AI self-initiation) ---
-  const handleSilenceTrigger = useCallback(() => {
+  const handleSilenceTrigger = useCallback(async () => {
     const threshold = settings.voiceCall.silenceThreshold;
     const ephemeralMsg = { role: 'user' as const, content: `(ユーザーが${threshold}秒沈黙しています)` };
+    const snapshot = await captureSnapshot();
+    const images = snapshot ? [snapshot] : undefined;
     // saveUserMsg=false: don't persist the silence prompt
-    runLlmTtsPipeline([ephemeralMsg], false);
-  }, [settings.voiceCall.silenceThreshold, runLlmTtsPipeline]);
+    runLlmTtsPipeline([ephemeralMsg], false, images);
+  }, [settings.voiceCall.silenceThreshold, runLlmTtsPipeline, captureSnapshot]);
 
   // refを常に最新に保つ（startSilenceTimerとの循環依存を回避）
   handleSilenceTriggerRef.current = handleSilenceTrigger;
@@ -307,20 +378,25 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
 
       setPhase('processing');
       try {
-        const text = await transcribe(settings.voiceCall.sttEndpointUrl, audioBlob);
+        // 音声処理と並行してカメラスナップショットを取得（レイテンシ節約）
+        const [text, snapshot] = await Promise.all([
+          transcribe(settings.voiceCall.sttEndpointUrl, audioBlob),
+          captureSnapshot(),
+        ]);
         if (!text) {
           setPhase('idle');
           startSilenceTimer();
           return;
         }
-        await runLlmTtsPipeline([{ role: 'user', content: text }], true);
+        const images = snapshot ? [snapshot] : undefined;
+        await runLlmTtsPipeline([{ role: 'user', content: text }], true, images);
       } catch (e) {
         console.error('STT error:', e);
         setPhase('idle');
         startSilenceTimer();
       }
     },
-    [settings.voiceCall.sttEndpointUrl, phase, bargeIn, runLlmTtsPipeline, startSilenceTimer],
+    [settings.voiceCall.sttEndpointUrl, phase, bargeIn, runLlmTtsPipeline, startSilenceTimer, captureSnapshot],
   );
 
   const startRecording = useCallback(() => {
@@ -414,11 +490,16 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
       // TTS warm (user gesture context)
       ttsQueueRef.current.warm();
 
+      // Start camera if configured to default-on (user gesture is active via start button).
+      if (settings.voiceCall.cameraDefaultOn) {
+        void startCamera();
+      }
+
       startSilenceTimer();
     } catch (e) {
       console.error('Microphone access denied:', e);
     }
-  }, [settings.voiceCall.inputMode, startVadLoop, startSilenceTimer]);
+  }, [settings.voiceCall.inputMode, settings.voiceCall.cameraDefaultOn, startVadLoop, startSilenceTimer, startCamera]);
 
   const stop = useCallback(() => {
     activeRef.current = false;
@@ -451,8 +532,10 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     analyserRef.current = null;
     isRecordingRef.current = false;
 
+    stopCamera();
+
     setSubtitle('');
-  }, [clearSilenceTimer]);
+  }, [clearSilenceTimer, stopCamera]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -461,5 +544,17 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     };
   }, [stop]);
 
-  return { active, phase, subtitle, pttHeld, start, stop, pttDown, pttUp };
+  return {
+    active,
+    phase,
+    subtitle,
+    pttHeld,
+    start,
+    stop,
+    pttDown,
+    pttUp,
+    cameraActive,
+    cameraStream,
+    toggleCamera,
+  };
 }

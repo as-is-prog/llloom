@@ -303,6 +303,19 @@ export function Settings() {
               className="w-full"
             />
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={voiceCall.cameraDefaultOn ?? false}
+              onChange={(e) => updateVoiceCall({ cameraDefaultOn: e.target.checked })}
+              className="rounded bg-slate-900 border-slate-700"
+            />
+            <span className="text-sm">通話開始時にカメラをON</span>
+          </label>
+          <p className="text-xs text-slate-500 -mt-2">
+            カメラ画像は送信時のみLLMに渡され、履歴には保存されません。
+          </p>
         </section>
 
         <section className="space-y-3">

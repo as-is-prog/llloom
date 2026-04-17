@@ -1,4 +1,5 @@
 import type { AppSettings, Message, Preset } from '../types';
+import type { EphemeralImage } from './image';
 
 type LlmSettings = Pick<AppSettings, 'endpointUrl' | 'apiType'>;
 
@@ -18,25 +19,76 @@ export async function fetchModels(settings: LlmSettings): Promise<string[]> {
   return (json.data ?? []).map((m: { id: string }) => m.id);
 }
 
+/**
+ * Query Ollama `/api/show` for a model's capabilities.
+ * Returns null when capabilities can't be determined (older Ollama, network error, etc.),
+ * so callers should treat null as "unknown" rather than "no vision".
+ */
+export async function fetchOllamaCapabilities(
+  settings: LlmSettings,
+  model: string,
+): Promise<string[] | null> {
+  if (settings.apiType !== 'ollama' || !model) return null;
+  try {
+    const res = await fetch(`${settings.endpointUrl}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (Array.isArray(json.capabilities)) return json.capabilities as string[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 interface ChatRequestOptions {
   settings: LlmSettings;
   preset: Preset;
   systemPrompt: string;
   messages: Pick<Message, 'role' | 'content'>[];
+  /**
+   * Ephemeral images attached to the last user message only.
+   * Not persisted anywhere — caller supplies them per-turn.
+   */
+  ephemeralImages?: EphemeralImage[];
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (error: Error) => void;
   signal?: AbortSignal;
 }
 
+/** Index of the last user-role message, or -1 if none. */
+function findLastUserIndex(messages: Pick<Message, 'role' | 'content'>[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return i;
+  }
+  return -1;
+}
+
 function buildOllamaBody(options: ChatRequestOptions) {
-  const { preset, systemPrompt, messages } = options;
+  const { preset, systemPrompt, messages, ephemeralImages } = options;
+  const lastUserIdx = ephemeralImages?.length ? findLastUserIndex(messages) : -1;
+
+  const chatMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...messages.map((m, idx) => {
+      const base: { role: string; content: string; images?: string[] } = {
+        role: m.role,
+        content: m.content,
+      };
+      if (idx === lastUserIdx && ephemeralImages?.length) {
+        base.images = ephemeralImages.map((img) => img.base64);
+      }
+      return base;
+    }),
+  ];
+
   return {
     model: preset.model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ],
+    messages: chatMessages,
     stream: true,
     options: {
       temperature: preset.temperature,
@@ -48,14 +100,34 @@ function buildOllamaBody(options: ChatRequestOptions) {
   };
 }
 
+type OpenAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 function buildOpenAIBody(options: ChatRequestOptions) {
-  const { preset, systemPrompt, messages } = options;
+  const { preset, systemPrompt, messages, ephemeralImages } = options;
+  const lastUserIdx = ephemeralImages?.length ? findLastUserIndex(messages) : -1;
+
+  const chatMessages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...messages.map((m, idx) => {
+      if (idx === lastUserIdx && ephemeralImages?.length) {
+        const parts: OpenAIContentPart[] = [{ type: 'text', text: m.content }];
+        for (const img of ephemeralImages) {
+          parts.push({
+            type: 'image_url',
+            image_url: { url: `data:${img.mimeType};base64,${img.base64}` },
+          });
+        }
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    }),
+  ];
+
   return {
     model: preset.model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ],
+    messages: chatMessages,
     stream: true,
     temperature: preset.temperature,
     top_p: preset.topP,

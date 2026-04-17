@@ -27,6 +27,7 @@ export const useSettingsStore = create<SettingsStore>()(
         silenceThreshold: 10,
         vadSensitivity: 30,
         vadSilenceDuration: 1200,
+        cameraDefaultOn: false,
       },
       update: (settings) => set(settings),
     }),
