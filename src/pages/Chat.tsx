@@ -349,10 +349,14 @@ export function Chat() {
           inputMode={settings.voiceCall.inputMode}
           cameraActive={voiceCall.cameraActive}
           cameraStream={voiceCall.cameraStream}
+          availableCameras={voiceCall.availableCameras}
+          currentCameraId={voiceCall.currentCameraId}
           onPttDown={voiceCall.pttDown}
           onPttUp={voiceCall.pttUp}
           onEnd={voiceCall.stop}
           onToggleCamera={voiceCall.toggleCamera}
+          onSwitchCamera={voiceCall.switchCamera}
+          onAttachPreviewVideo={voiceCall.attachPreviewVideo}
         />
       )}
 

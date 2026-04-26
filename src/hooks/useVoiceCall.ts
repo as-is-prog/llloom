@@ -29,6 +29,8 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   const [pttHeld, setPttHeld] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
 
   // Refs for long-lived mutable state
   const ttsQueueRef = useRef(new TtsQueue());
@@ -51,8 +53,13 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   const handleSilenceTriggerRef = useRef<() => void>(() => {});
   // Camera refs
   const cameraStreamRef = useRef<MediaStream | null>(null);
-  /** Detached <video> element used only for canvas snapshots. */
-  const captureVideoRef = useRef<HTMLVideoElement | null>(null);
+  /**
+   * Visible <video> element supplied by the consumer (e.g. VoiceCallOverlay).
+   * Used both for displaying the preview and as the canvas source for snapshots.
+   * Safari is unreliable with detached video elements (videoWidth stays 0), so we
+   * rely on the rendered preview instead of an offscreen capture element.
+   */
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraActiveRef = useRef(false);
 
   // --- Silence timer ---
@@ -73,53 +80,79 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   }, [settings.voiceCall.silenceThreshold, clearSilenceTimer]);
 
   // --- Camera ---
+  const refreshCameraList = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setAvailableCameras(devices.filter((d) => d.kind === 'videoinput'));
+    } catch (e) {
+      console.warn('enumerateDevices failed:', e);
+    }
+  }, []);
+
   const stopCamera = useCallback(() => {
     cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
     cameraStreamRef.current = null;
     setCameraStream(null);
-    if (captureVideoRef.current) {
-      captureVideoRef.current.srcObject = null;
-      captureVideoRef.current = null;
-    }
+    setCurrentCameraId(null);
     cameraActiveRef.current = false;
     setCameraActive(false);
   }, []);
 
-  const startCamera = useCallback(async () => {
-    if (cameraActiveRef.current) return;
+  /**
+   * Acquire (or re-acquire) the camera. If `deviceId` is provided, that exact device
+   * is requested; otherwise we ask for any user-facing camera as a non-strict hint
+   * (Mac webcams don't report facingMode, so a hard constraint can fail there).
+   */
+  const startCamera = useCallback(async (deviceId?: string) => {
+    // Stop any existing stream first so we can switch devices cleanly.
+    cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+    cameraStreamRef.current = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-      });
+      const videoConstraint: MediaTrackConstraints = deviceId
+        ? { deviceId: { exact: deviceId } }
+        : { facingMode: { ideal: 'user' } };
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint });
       cameraStreamRef.current = stream;
       setCameraStream(stream);
 
-      const video = document.createElement('video');
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      video.srcObject = stream;
-      // playが拒否されてもメタデータが入ればdrawImageは成立するので、失敗は無視する
-      await video.play().catch(() => undefined);
-      captureVideoRef.current = video;
+      const settings = stream.getVideoTracks()[0]?.getSettings();
+      setCurrentCameraId(settings?.deviceId ?? deviceId ?? null);
 
       cameraActiveRef.current = true;
       setCameraActive(true);
+
+      // Labels are only populated after permission is granted, so refresh now.
+      void refreshCameraList();
     } catch (e) {
       console.error('Camera access failed:', e);
       stopCamera();
     }
-  }, [stopCamera]);
+  }, [stopCamera, refreshCameraList]);
 
   const toggleCamera = useCallback(() => {
     if (cameraActiveRef.current) stopCamera();
     else void startCamera();
   }, [startCamera, stopCamera]);
 
+  const switchCamera = useCallback(
+    (deviceId: string) => {
+      if (!cameraActiveRef.current) return;
+      void startCamera(deviceId);
+    },
+    [startCamera],
+  );
+
+  const attachPreviewVideo = useCallback((el: HTMLVideoElement | null) => {
+    previewVideoRef.current = el;
+  }, []);
+
   /** Capture a snapshot as an ephemeral image. Returns null if camera is off or capture fails. */
   const captureSnapshot = useCallback(async (): Promise<EphemeralImage | null> => {
-    const video = captureVideoRef.current;
+    const video = previewVideoRef.current;
     if (!cameraActiveRef.current || !video) return null;
+    if (!video.videoWidth || !video.videoHeight) return null;
     try {
       return await videoFrameToEphemeralImage(video);
     } catch (e) {
@@ -127,6 +160,15 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
       return null;
     }
   }, []);
+
+  // Keep the camera list fresh when devices are added/removed (e.g., USB webcam).
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return;
+    const handler = () => { void refreshCameraList(); };
+    md.addEventListener('devicechange', handler);
+    return () => md.removeEventListener('devicechange', handler);
+  }, [refreshCameraList]);
 
   // --- LLM + TTS pipeline (shared between user utterance and silence trigger) ---
   const runLlmTtsPipeline = useCallback(
@@ -556,5 +598,9 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     cameraActive,
     cameraStream,
     toggleCamera,
+    availableCameras,
+    currentCameraId,
+    switchCamera,
+    attachPreviewVideo,
   };
 }
