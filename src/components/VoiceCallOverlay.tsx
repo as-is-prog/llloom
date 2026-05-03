@@ -9,10 +9,14 @@ interface VoiceCallOverlayProps {
   inputMode: 'vad' | 'ptt';
   cameraActive: boolean;
   cameraStream: MediaStream | null;
+  availableCameras: MediaDeviceInfo[];
+  currentCameraId: string | null;
   onPttDown: () => void;
   onPttUp: () => void;
   onEnd: () => void;
   onToggleCamera: () => void;
+  onSwitchCamera: (deviceId: string) => void;
+  onAttachPreviewVideo: (el: HTMLVideoElement | null) => void;
 }
 
 const phaseLabel: Record<VoiceCallPhase, string> = {
@@ -29,24 +33,62 @@ export function VoiceCallOverlay({
   inputMode,
   cameraActive,
   cameraStream,
+  availableCameras,
+  currentCameraId,
   onPttDown,
   onPttUp,
   onEnd,
   onToggleCamera,
+  onSwitchCamera,
+  onAttachPreviewVideo,
 }: VoiceCallOverlayProps) {
   const { voiceCall } = useSettingsStore();
-  const previewRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
 
+  // Bind the rendered <video> to the hook so it can be used both for display and
+  // for snapshot capture. We expose it via a ref callback so the hook gets
+  // notified of mount/unmount even when the element is conditionally rendered.
+  const setVideoEl = (el: HTMLVideoElement | null) => {
+    previewRef.current = el;
+    onAttachPreviewVideo(el);
+  };
+
+  // (Re)wire the stream into the visible <video>. On Safari/iOS, calling play()
+  // before metadata is loaded silently fails and the element stays black even
+  // though the camera LED is on — so we wait for `loadedmetadata` first.
   useEffect(() => {
     const video = previewRef.current;
     if (!video) return;
+
+    if (!cameraStream) {
+      video.srcObject = null;
+      return;
+    }
+
     if (video.srcObject !== cameraStream) {
       video.srcObject = cameraStream;
     }
-    if (cameraStream) {
-      video.play().catch(() => undefined);
+
+    const tryPlay = () => {
+      const p = video.play();
+      if (p && typeof p.catch === 'function') p.catch(() => undefined);
+    };
+
+    if (video.readyState >= 1) {
+      tryPlay();
+      return;
     }
+
+    video.addEventListener('loadedmetadata', tryPlay, { once: true });
+    return () => video.removeEventListener('loadedmetadata', tryPlay);
   }, [cameraStream]);
+
+  const handleSwitchCamera = () => {
+    if (availableCameras.length < 2) return;
+    const idx = availableCameras.findIndex((d) => d.deviceId === currentCameraId);
+    const next = availableCameras[(idx + 1) % availableCameras.length];
+    if (next) onSwitchCamera(next.deviceId);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/95 flex flex-col">
@@ -54,7 +96,7 @@ export function VoiceCallOverlay({
       {cameraActive && cameraStream && (
         <div className="absolute top-4 right-4 w-40 aspect-[4/3] rounded-lg overflow-hidden border border-slate-700 shadow-lg bg-black">
           <video
-            ref={previewRef}
+            ref={setVideoEl}
             autoPlay
             playsInline
             muted
@@ -149,6 +191,18 @@ export function VoiceCallOverlay({
               </svg>
             )}
           </button>
+
+          {cameraActive && availableCameras.length >= 2 && (
+            <button
+              onClick={handleSwitchCamera}
+              className="w-14 h-14 rounded-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 transition-colors"
+              title="カメラを切り替え"
+            >
+              <svg className="w-6 h-6 text-slate-200" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-9.47 5.227 7.917-3.286-.672ZM12 2.25V4.5m5.834.166-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243-1.59-1.59" />
+              </svg>
+            </button>
+          )}
 
           <button
             onClick={onEnd}
