@@ -1,6 +1,8 @@
 export interface AppSettings {
   endpointUrl: string;
-  apiType: 'ollama' | 'openai';
+  apiType: 'ollama' | 'openai' | 'lmstudio';
+  apiToken: string;
+  lmStudioIntegrations: string;
   tts: TtsSettings;
   voiceCall: VoiceCallSettings;
 }

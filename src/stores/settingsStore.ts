@@ -11,6 +11,8 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       endpointUrl: 'http://localhost:11434',
       apiType: 'ollama',
+      apiToken: '',
+      lmStudioIntegrations: '',
       tts: {
         enabled: false,
         engine: 'sbv2',

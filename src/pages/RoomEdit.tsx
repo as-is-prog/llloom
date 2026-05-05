@@ -1,30 +1,42 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { PageHeader } from '../components/PageHeader';
+import type { Preset, Room } from '../types';
 
 export function RoomEdit() {
   const { roomId } = useParams<{ roomId: string }>();
-  const navigate = useNavigate();
 
   const room = useLiveQuery(() => db.rooms.get(roomId!), [roomId]);
   const presets = useLiveQuery(() => db.presets.toArray());
 
-  const [name, setName] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
-  const [presetId, setPresetId] = useState('');
+  if (!room || !roomId) {
+    return (
+      <div className="flex items-center justify-center min-h-screen text-slate-500">
+        Loading...
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (room) {
-      setName(room.name);
-      setSystemPrompt(room.systemPrompt);
-      setPresetId(room.presetId);
-    }
-  }, [room]);
+  return <RoomEditForm key={room.id} roomId={roomId} room={room} presets={presets ?? []} />;
+}
+
+function RoomEditForm({
+  roomId,
+  room,
+  presets,
+}: {
+  roomId: string;
+  room: Room;
+  presets: Preset[];
+}) {
+  const navigate = useNavigate();
+  const [name, setName] = useState(room.name);
+  const [systemPrompt, setSystemPrompt] = useState(room.systemPrompt);
+  const [presetId, setPresetId] = useState(room.presetId);
 
   const save = async () => {
-    if (!roomId) return;
     await db.rooms.update(roomId, {
       name: name.trim() || 'Untitled',
       systemPrompt,
@@ -35,7 +47,6 @@ export function RoomEdit() {
   };
 
   const deleteRoom = async () => {
-    if (!roomId) return;
     const convs = await db.conversations.where('roomId').equals(roomId).toArray();
     for (const conv of convs) {
       await db.messages.where('conversationId').equals(conv.id).delete();
@@ -44,14 +55,6 @@ export function RoomEdit() {
     await db.rooms.delete(roomId);
     navigate('/');
   };
-
-  if (!room) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-slate-500">
-        Loading...
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -92,7 +95,7 @@ export function RoomEdit() {
             onChange={(e) => setPresetId(e.target.value)}
             className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
           >
-            {presets?.map((p) => (
+            {presets.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name} ({p.model})
               </option>

@@ -259,7 +259,12 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
       setPhase('speaking');
 
       await streamChat({
-        settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
+        settings: {
+          endpointUrl: settings.endpointUrl,
+          apiType: settings.apiType,
+          apiToken: settings.apiToken,
+          lmStudioIntegrations: settings.lmStudioIntegrations,
+        },
         preset,
         systemPrompt,
         messages: history,
@@ -390,7 +395,9 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
   }, [settings.voiceCall.silenceThreshold, runLlmTtsPipeline, captureSnapshot]);
 
   // refを常に最新に保つ（startSilenceTimerとの循環依存を回避）
-  handleSilenceTriggerRef.current = handleSilenceTrigger;
+  useEffect(() => {
+    handleSilenceTriggerRef.current = handleSilenceTrigger;
+  }, [handleSilenceTrigger]);
 
   // --- Recording ---
   const stopRecording = useCallback((): Promise<Blob> => {
@@ -492,7 +499,13 @@ export function useVoiceCall({ roomId, convId, systemPrompt, preset }: UseVoiceC
     };
 
     vadFrameRef.current = requestAnimationFrame(check);
-  }, [settings.voiceCall.vadSensitivity, startRecording, stopRecording, processRecording]);
+  }, [
+    settings.voiceCall.vadSensitivity,
+    settings.voiceCall.vadSilenceDuration,
+    startRecording,
+    stopRecording,
+    processRecording,
+  ]);
 
   // --- PTT handlers ---
   const pttDown = useCallback(() => {

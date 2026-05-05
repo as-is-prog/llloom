@@ -21,14 +21,19 @@ export function PresetEdit() {
     setModelsLoading(true);
     setModelsError('');
     try {
-      const models = await fetchModels({ endpointUrl: settings.endpointUrl, apiType: settings.apiType });
+      const models = await fetchModels({
+        endpointUrl: settings.endpointUrl,
+        apiType: settings.apiType,
+        apiToken: settings.apiToken,
+        lmStudioIntegrations: settings.lmStudioIntegrations,
+      });
       setAvailableModels(models);
     } catch (e) {
       setModelsError(e instanceof Error ? e.message : 'Failed to fetch models');
     } finally {
       setModelsLoading(false);
     }
-  }, [settings.endpointUrl, settings.apiType]);
+  }, [settings.endpointUrl, settings.apiType, settings.apiToken, settings.lmStudioIntegrations]);
 
   useEffect(() => {
     loadModels();

@@ -7,9 +7,15 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { PageHeader } from '../components/PageHeader';
 import type { Preset, TtsSettings, VoiceCallSettings } from '../types';
 
+type Sbv2ModelInfo = {
+  spk2id: Record<string, number>;
+  style2id: Record<string, number>;
+  model_path?: string;
+};
+
 export function Settings() {
   const navigate = useNavigate();
-  const { endpointUrl, apiType, tts, voiceCall, update } = useSettingsStore();
+  const { endpointUrl, apiType, apiToken, lmStudioIntegrations, tts, voiceCall, update } = useSettingsStore();
   const presets = useLiveQuery(() => db.presets.toArray());
   const [ttsModels, setTtsModels] = useState<{ name: string; styles: string[] }[]>([]);
   const [vvSpeakers, setVvSpeakers] = useState<{ name: string; styles: { name: string; id: number }[] }[]>([]);
@@ -31,8 +37,8 @@ export function Settings() {
       } else {
         const res = await fetch(`${tts.endpointUrl}/models/info`);
         if (!res.ok) throw new Error(`${res.status}`);
-        const info = await res.json();
-        const models = Object.values(info).map((m: any) => ({
+        const info = await res.json() as Record<string, Sbv2ModelInfo>;
+        const models = Object.values(info).map((m) => ({
           name: Object.keys(m.spk2id)[0] ?? m.model_path,
           styles: Object.keys(m.style2id),
         }));
@@ -77,10 +83,11 @@ export function Settings() {
             <label className="block text-xs text-slate-500 mb-1">API Type</label>
             <select
               value={apiType}
-              onChange={(e) => update({ apiType: e.target.value as 'ollama' | 'openai' })}
+              onChange={(e) => update({ apiType: e.target.value as 'ollama' | 'openai' | 'lmstudio' })}
               className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
             >
               <option value="ollama">Ollama</option>
+              <option value="lmstudio">LM Studio API</option>
               <option value="openai">OpenAI Compatible (LM Studio etc.)</option>
             </select>
           </div>
@@ -90,10 +97,37 @@ export function Settings() {
             <input
               value={endpointUrl}
               onChange={(e) => update({ endpointUrl: e.target.value })}
-              placeholder="http://localhost:11434"
+              placeholder={apiType === 'ollama' ? 'http://localhost:11434' : 'http://localhost:1234'}
               className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
             />
           </div>
+
+          {apiType !== 'ollama' && (
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">API Token</label>
+              <input
+                type="password"
+                value={apiToken}
+                onChange={(e) => update({ apiToken: e.target.value })}
+                placeholder="LM Studio API token"
+                autoComplete="off"
+                className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+              />
+            </div>
+          )}
+
+          {apiType === 'lmstudio' && (
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">LM Studio Integrations</label>
+              <input
+                value={lmStudioIntegrations}
+                onChange={(e) => update({ lmStudioIntegrations: e.target.value })}
+                placeholder="mcp/playwright, mcp/example"
+                autoComplete="off"
+                className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
+              />
+            </div>
+          )}
         </section>
 
         <section className="space-y-3">

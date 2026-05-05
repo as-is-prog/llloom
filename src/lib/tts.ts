@@ -125,7 +125,7 @@ export async function fetchVoiceVoxSpeakers(
 
 // 句読点で分割するが、直後に閉じ括弧が続く場合は分割しない
 // 例: 「（豚バラ、イカなど！）をたっぷり」→「！」では分割しない
-const SENTENCE_DELIMITERS = /(?<=[。！？!?])(?![）\)」】》〉』])/;
+const SENTENCE_DELIMITERS = /(?<=[。！？!?])(?![）)」】》〉』])/;
 
 /**
  * ストリーミングテキストから「」内の発話を文単位で抽出する。

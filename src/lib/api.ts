@@ -1,20 +1,36 @@
 import type { AppSettings, Message, Preset } from '../types';
 import type { EphemeralImage } from './image';
 
-type LlmSettings = Pick<AppSettings, 'endpointUrl' | 'apiType'>;
+type LlmSettings = Pick<AppSettings, 'endpointUrl' | 'apiType' | 'apiToken' | 'lmStudioIntegrations'>;
+
+function buildHeaders(settings: LlmSettings): HeadersInit {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = settings.apiToken.trim();
+  if (token && settings.apiType !== 'ollama') {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 export async function fetchModels(settings: LlmSettings): Promise<string[]> {
   const url =
     settings.apiType === 'ollama'
       ? `${settings.endpointUrl}/api/tags`
+      : settings.apiType === 'lmstudio'
+        ? `${settings.endpointUrl}/api/v1/models`
       : `${settings.endpointUrl}/v1/models`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: buildHeaders(settings) });
   if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
   const json = await res.json();
 
   if (settings.apiType === 'ollama') {
     return (json.models ?? []).map((m: { name: string }) => m.name);
+  }
+  if (settings.apiType === 'lmstudio') {
+    return (json.models ?? [])
+      .filter((m: { type?: string }) => m.type !== 'embedding')
+      .map((m: { key: string }) => m.key);
   }
   return (json.data ?? []).map((m: { id: string }) => m.id);
 }
@@ -137,6 +153,49 @@ function buildOpenAIBody(options: ChatRequestOptions) {
   };
 }
 
+function buildLmStudioBody(options: ChatRequestOptions) {
+  const { preset, systemPrompt, messages, ephemeralImages } = options;
+  const lastUserIdx = ephemeralImages?.length ? findLastUserIndex(messages) : -1;
+  const integrations = options.settings.lmStudioIntegrations
+    .split(',')
+    .map((integration) => integration.trim())
+    .filter(Boolean);
+  const transcript = messages
+    .map((m, idx) => {
+      const role = m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User';
+      const imageNote = idx === lastUserIdx && ephemeralImages?.length
+        ? `\n[${ephemeralImages.length} image(s) attached]`
+        : '';
+      return `${role}: ${m.content}${imageNote}`;
+    })
+    .join('\n\n');
+
+  const input: Array<{ type: 'message'; content: string } | { type: 'image'; data_url: string }> = [
+    { type: 'message', content: transcript },
+  ];
+  if (lastUserIdx >= 0 && ephemeralImages?.length) {
+    for (const img of ephemeralImages) {
+      input.push({
+        type: 'image',
+        data_url: `data:${img.mimeType};base64,${img.base64}`,
+      });
+    }
+  }
+
+  return {
+    model: preset.model,
+    input,
+    system_prompt: systemPrompt,
+    stream: true,
+    store: false,
+    ...(integrations.length ? { integrations } : {}),
+    temperature: preset.temperature,
+    top_p: preset.topP,
+    max_output_tokens: preset.maxTokens,
+    context_length: preset.contextLength,
+  };
+}
+
 async function parseOllamaStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onChunk: (text: string) => void,
@@ -205,20 +264,87 @@ async function parseOpenAIStream(
   }
 }
 
+async function parseLmStudioStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let eventName = '';
+
+  const flushEvent = (event: string, dataLines: string[]) => {
+    if (!dataLines.length) return;
+    let json: {
+      type?: string;
+      content?: string;
+      error?: { message?: string };
+    };
+    try {
+      json = JSON.parse(dataLines.join('\n'));
+    } catch {
+      return;
+    }
+    if ((event === 'message.delta' || json.type === 'message.delta') && json.content) {
+      onChunk(json.content);
+    }
+    if ((event === 'error' || json.type === 'error') && json.error?.message) {
+      throw new Error(json.error.message);
+    }
+  };
+
+  let dataLines: string[] = [];
+  while (true) {
+    if (signal?.aborted) break;
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trimEnd();
+      if (!trimmed) {
+        flushEvent(eventName, dataLines);
+        eventName = '';
+        dataLines = [];
+        continue;
+      }
+      if (trimmed.startsWith('event:')) {
+        eventName = trimmed.slice(6).trim();
+      } else if (trimmed.startsWith('data:')) {
+        dataLines.push(trimmed.slice(5).trimStart());
+      }
+    }
+  }
+
+  if (buffer.trim().startsWith('data:')) {
+    dataLines.push(buffer.trim().slice(5).trimStart());
+  }
+  flushEvent(eventName, dataLines);
+}
+
 export async function streamChat(options: ChatRequestOptions) {
   const { settings, onChunk, onDone, onError, signal } = options;
 
   const isOllama = settings.apiType === 'ollama';
+  const isLmStudio = settings.apiType === 'lmstudio';
   const url = isOllama
     ? `${settings.endpointUrl}/api/chat`
+    : isLmStudio
+      ? `${settings.endpointUrl}/api/v1/chat`
     : `${settings.endpointUrl}/v1/chat/completions`;
 
-  const body = isOllama ? buildOllamaBody(options) : buildOpenAIBody(options);
+  const body = isOllama
+    ? buildOllamaBody(options)
+    : isLmStudio
+      ? buildLmStudioBody(options)
+      : buildOpenAIBody(options);
 
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildHeaders(settings),
       body: JSON.stringify(body),
       signal,
     });
@@ -232,6 +358,8 @@ export async function streamChat(options: ChatRequestOptions) {
 
     if (isOllama) {
       await parseOllamaStream(reader, onChunk, signal);
+    } else if (isLmStudio) {
+      await parseLmStudioStream(reader, onChunk, signal);
     } else {
       await parseOpenAIStream(reader, onChunk, signal);
     }

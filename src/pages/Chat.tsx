@@ -176,7 +176,12 @@ export function Chat() {
       };
 
       await streamChat({
-        settings: { endpointUrl: settings.endpointUrl, apiType: settings.apiType },
+        settings: {
+          endpointUrl: settings.endpointUrl,
+          apiType: settings.apiType,
+          apiToken: settings.apiToken,
+          lmStudioIntegrations: settings.lmStudioIntegrations,
+        },
         preset,
         systemPrompt: room.systemPrompt,
         messages: allMessages.map((m) => ({ role: m.role, content: m.content })),
@@ -253,7 +258,7 @@ export function Chat() {
 
       await requestAIResponse(images);
     },
-    [room, preset, convId, requestAIResponse],
+    [room, preset, convId, settings.tts.enabled, requestAIResponse],
   );
 
   /** Edit a user message: update content, delete all messages after it, then re-request AI */
@@ -281,7 +286,7 @@ export function Chat() {
 
       await requestAIResponse();
     },
-    [convId, isStreaming, requestAIResponse],
+    [convId, isStreaming, settings.tts.enabled, requestAIResponse],
   );
 
   /** Regenerate: delete the last assistant message and re-request */
@@ -300,7 +305,7 @@ export function Chat() {
 
       await requestAIResponse();
     },
-    [convId, isStreaming, messages, requestAIResponse],
+    [convId, isStreaming, messages, settings.tts.enabled, requestAIResponse],
   );
 
   if (!room || !conversation) {
