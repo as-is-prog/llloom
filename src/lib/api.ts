@@ -188,29 +188,32 @@ function buildLmStudioBody(options: ChatRequestOptions) {
     .split(',')
     .map((integration) => integration.trim())
     .filter(Boolean);
-  const input: Array<{ type: 'message'; content: string } | { type: 'image'; data_url: string }> = [];
+  const transcript = messages
+    .map((m, idx) => {
+      const role = m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User';
+      const imageNote = idx === lastUserIdx && ephemeralImages?.length
+        ? `\n[${ephemeralImages.length} image(s) attached]`
+        : '';
+      return `${role}: ${m.content}${imageNote}`;
+    })
+    .join('\n\n');
 
-  if (systemPrompt.trim()) {
-    input.push({ type: 'message', content: `System: ${systemPrompt}` });
-  }
-
-  for (let idx = 0; idx < messages.length; idx++) {
-    const m = messages[idx];
-    const role = m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User';
-    input.push({ type: 'message', content: `${role}: ${m.content}` });
-    if (idx === lastUserIdx && ephemeralImages?.length) {
-      for (const img of ephemeralImages) {
-        input.push({
-          type: 'image',
-          data_url: `data:${img.mimeType};base64,${img.base64}`,
-        });
-      }
+  const input: Array<{ type: 'message'; content: string } | { type: 'image'; data_url: string }> = [
+    { type: 'message', content: transcript },
+  ];
+  if (lastUserIdx >= 0 && ephemeralImages?.length) {
+    for (const img of ephemeralImages) {
+      input.push({
+        type: 'image',
+        data_url: `data:${img.mimeType};base64,${img.base64}`,
+      });
     }
   }
 
   return {
     model: preset.model,
-    input,
+    input: ephemeralImages?.length ? input : transcript,
+    system_prompt: systemPrompt,
     stream: true,
     store: false,
     ...(integrations.length ? { integrations } : {}),
