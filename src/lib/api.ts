@@ -12,7 +12,35 @@ function buildHeaders(settings: LlmSettings): HeadersInit {
   return headers;
 }
 
+function assertApiTokenIfRequired(settings: LlmSettings) {
+  if (settings.apiType === 'lmstudio' && !settings.apiToken.trim()) {
+    throw new Error('LM Studio API token is required. Set it in Settings > API Token.');
+  }
+}
+
+async function getErrorMessage(response: Response): Promise<string> {
+  const fallback = `${response.status} ${response.statusText}`.trim();
+  try {
+    const text = await response.text();
+    if (!text) return fallback;
+    try {
+      const json = JSON.parse(text);
+      return json.error?.message || json.message || text;
+    } catch {
+      return text;
+    }
+  } catch {
+    return fallback;
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export async function fetchModels(settings: LlmSettings): Promise<string[]> {
+  assertApiTokenIfRequired(settings);
+
   const url =
     settings.apiType === 'ollama'
       ? `${settings.endpointUrl}/api/tags`
@@ -21,7 +49,7 @@ export async function fetchModels(settings: LlmSettings): Promise<string[]> {
       : `${settings.endpointUrl}/v1/models`;
 
   const res = await fetch(url, { headers: buildHeaders(settings) });
-  if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to fetch models: ${await getErrorMessage(res)}`);
   const json = await res.json();
 
   if (settings.apiType === 'ollama') {
@@ -184,15 +212,14 @@ function buildLmStudioBody(options: ChatRequestOptions) {
 
   return {
     model: preset.model,
-    input,
+    input: ephemeralImages?.length ? input : transcript,
     system_prompt: systemPrompt,
     stream: true,
     store: false,
     ...(integrations.length ? { integrations } : {}),
-    temperature: preset.temperature,
-    top_p: preset.topP,
-    max_output_tokens: preset.maxTokens,
-    context_length: preset.contextLength,
+    temperature: clamp(preset.temperature, 0, 1),
+    top_p: clamp(preset.topP, 0, 1),
+    max_output_tokens: Math.max(1, Math.floor(preset.maxTokens)),
   };
 }
 
@@ -342,6 +369,8 @@ export async function streamChat(options: ChatRequestOptions) {
       : buildOpenAIBody(options);
 
   try {
+    assertApiTokenIfRequired(settings);
+
     const response = await fetch(url, {
       method: 'POST',
       headers: buildHeaders(settings),
@@ -350,7 +379,7 @@ export async function streamChat(options: ChatRequestOptions) {
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new Error(`API error: ${await getErrorMessage(response)}`);
     }
 
     const reader = response.body?.getReader();

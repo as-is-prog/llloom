@@ -109,10 +109,15 @@ export function Settings() {
                 type="password"
                 value={apiToken}
                 onChange={(e) => update({ apiToken: e.target.value })}
-                placeholder="LM Studio API token"
+                placeholder="Paste your LM Studio API token"
                 autoComplete="off"
                 className="w-full bg-slate-900 rounded-lg px-3 py-2 text-sm border border-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-600"
               />
+              {apiType === 'lmstudio' && !apiToken.trim() && (
+                <p className="text-xs text-amber-500 mt-1">
+                  LM Studio API requires a Bearer token.
+                </p>
+              )}
             </div>
           )}
 
