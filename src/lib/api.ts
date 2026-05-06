@@ -148,6 +148,10 @@ type OpenAIContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
 
+type LmStudioInputPart =
+  | { type: 'text'; content: string }
+  | { type: 'image'; data_url: string };
+
 function buildOpenAIBody(options: ChatRequestOptions) {
   const { preset, systemPrompt, messages, ephemeralImages } = options;
   const lastUserIdx = ephemeralImages?.length ? findLastUserIndex(messages) : -1;
@@ -181,6 +185,34 @@ function buildOpenAIBody(options: ChatRequestOptions) {
   };
 }
 
+function buildLmStudioTranscript(
+  messages: Pick<Message, 'role' | 'content'>[],
+  lastUserIdx: number,
+  imageCount: number,
+): string {
+  return messages
+    .map((m, idx) => {
+      const role = m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User';
+      const imageNote = idx === lastUserIdx && imageCount > 0
+        ? `\n[${imageCount} image(s) attached]`
+        : '';
+      return `${role}: ${m.content}${imageNote}`;
+    })
+    .join('\n\n');
+}
+
+function buildLmStudioInput(transcript: string, images: EphemeralImage[] | undefined): string | LmStudioInputPart[] {
+  if (!images?.length) return transcript;
+
+  return [
+    { type: 'text', content: transcript },
+    ...images.map((img) => ({
+      type: 'image' as const,
+      data_url: `data:${img.mimeType};base64,${img.base64}`,
+    })),
+  ];
+}
+
 function buildLmStudioBody(options: ChatRequestOptions) {
   const { preset, systemPrompt, messages, ephemeralImages } = options;
   const lastUserIdx = ephemeralImages?.length ? findLastUserIndex(messages) : -1;
@@ -188,31 +220,14 @@ function buildLmStudioBody(options: ChatRequestOptions) {
     .split(',')
     .map((integration) => integration.trim())
     .filter(Boolean);
-  const transcript = messages
-    .map((m, idx) => {
-      const role = m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User';
-      const imageNote = idx === lastUserIdx && ephemeralImages?.length
-        ? `\n[${ephemeralImages.length} image(s) attached]`
-        : '';
-      return `${role}: ${m.content}${imageNote}`;
-    })
-    .join('\n\n');
-
-  const input: Array<{ type: 'message'; content: string } | { type: 'image'; data_url: string }> = [
-    { type: 'message', content: transcript },
-  ];
-  if (lastUserIdx >= 0 && ephemeralImages?.length) {
-    for (const img of ephemeralImages) {
-      input.push({
-        type: 'image',
-        data_url: `data:${img.mimeType};base64,${img.base64}`,
-      });
-    }
-  }
+  const imagesForLastUser = lastUserIdx >= 0 ? ephemeralImages : undefined;
+  const transcript = buildLmStudioTranscript(messages, lastUserIdx, imagesForLastUser?.length ?? 0);
 
   return {
     model: preset.model,
-    input: ephemeralImages?.length ? input : transcript,
+    // Native /api/v1/chat input items are text/image user inputs; assistant history is not
+    // represented as separate messages, so keep prior turns folded into text.
+    input: buildLmStudioInput(transcript, imagesForLastUser),
     system_prompt: systemPrompt,
     stream: true,
     store: false,
