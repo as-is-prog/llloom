@@ -36,6 +36,8 @@ export function RoomDetail() {
 
   const deleteConversation = async (convId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!window.confirm('削除します。よろしいですか？')) return;
+
     await db.messages.where('conversationId').equals(convId).delete();
     await db.conversations.delete(convId);
   };

@@ -78,6 +78,8 @@ export function PresetEdit() {
 
   const deletePreset = async () => {
     if (!presetId) return;
+    if (!window.confirm('削除します。よろしいですか？')) return;
+
     // Check if any rooms use this preset
     const rooms = await db.rooms.where('presetId').equals(presetId).count();
     if (rooms > 0) {

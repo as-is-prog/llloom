@@ -47,6 +47,8 @@ function RoomEditForm({
   };
 
   const deleteRoom = async () => {
+    if (!window.confirm('削除します。よろしいですか？')) return;
+
     const convs = await db.conversations.where('roomId').equals(roomId).toArray();
     for (const conv of convs) {
       await db.messages.where('conversationId').equals(conv.id).delete();
